@@ -1,0 +1,14 @@
+{
+  "name": "Follow",
+  "short_name": "Follow",
+  "description": "追剧追艺人，一站式追踪更新动态",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#ffffff",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

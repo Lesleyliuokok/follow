@@ -1,0 +1,160 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String?
+  image             String?
+  createdAt         DateTime           @default(now())
+  subscriptions     Subscription[]
+  pushSubscriptions PushSubscription[]
+  accounts          Account[]
+  sessions          Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Show {
+  id            String         @id @default(cuid())
+  title         String
+  platform      Platform
+  platformId    String
+  coverImage    String?
+  description   String?
+  status        ShowStatus     @default(AIRING)
+  latestEpisode Int?
+  totalEpisodes Int?
+  platformUrl   String
+  lastChecked   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  updates       ShowUpdate[]
+  subscriptions Subscription[]
+
+  @@unique([platform, platformId])
+}
+
+model ShowUpdate {
+  id          String   @id @default(cuid())
+  showId      String
+  episode     Int
+  title       String?
+  publishedAt DateTime
+  createdAt   DateTime @default(now())
+  show        Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
+}
+
+model Celebrity {
+  id            String              @id @default(cuid())
+  name          String
+  avatar        String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  platforms     CelebrityPlatform[]
+  subscriptions Subscription[]
+}
+
+model CelebrityPlatform {
+  id          String         @id @default(cuid())
+  celebrityId String
+  platform    SocialPlatform
+  platformId  String
+  profileUrl  String
+  username    String?
+  lastChecked DateTime?
+  celebrity   Celebrity      @relation(fields: [celebrityId], references: [id], onDelete: Cascade)
+  posts       SocialPost[]
+
+  @@unique([platform, platformId])
+}
+
+model SocialPost {
+  id                  String            @id @default(cuid())
+  celebrityPlatformId String
+  platformPostId      String
+  content             String?
+  mediaUrls           String[]
+  postUrl             String
+  publishedAt         DateTime
+  createdAt           DateTime          @default(now())
+  celebrityPlatform   CelebrityPlatform @relation(fields: [celebrityPlatformId], references: [id], onDelete: Cascade)
+
+  @@unique([celebrityPlatformId, platformPostId])
+}
+
+model Subscription {
+  id          String     @id @default(cuid())
+  userId      String
+  showId      String?
+  celebrityId String?
+  notifyPush  Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  show        Show?      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  celebrity   Celebrity? @relation(fields: [celebrityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, showId])
+  @@unique([userId, celebrityId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Platform {
+  BILIBILI
+  IQIYI
+  TENCENT
+  DOUYIN
+}
+
+enum SocialPlatform {
+  WEIBO
+  XIAOHONGSHU
+  DOUYIN
+  BILIBILI
+}
+
+enum ShowStatus {
+  AIRING
+  COMPLETED
+  UPCOMING
+}
