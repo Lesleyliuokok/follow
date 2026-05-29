@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node --import ./proxy.mjs ./node_modules/.bin/next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint"
   },
