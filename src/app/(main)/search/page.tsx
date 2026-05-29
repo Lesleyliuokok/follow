@@ -26,7 +26,7 @@ interface TrendingShow {
 // ── Small card ─────────────────────────────────────────────────────────────
 
 function ItemCard({
-  id, title, image, mode, meta, status, subscribed, onToggle,
+  id, title, image, mode, meta, status, subscribed, toggling, onToggle,
 }: {
   id: string
   title: string
@@ -35,6 +35,7 @@ function ItemCard({
   meta?: string
   status?: string
   subscribed: boolean
+  toggling?: boolean
   onToggle: (id: string) => void
 }) {
   const detailHref = mode === 'shows' ? `/shows/${id}` : `/celebrities/${id}`
@@ -77,13 +78,16 @@ function ItemCard({
         {meta && <p className="text-xs text-gray-400 mb-2">{meta}</p>}
         <button
           onClick={() => onToggle(id)}
-          className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+          disabled={toggling}
+          className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-60 ${
             subscribed
               ? 'bg-green-50 text-green-600 border border-green-100'
               : 'bg-gray-900 text-white hover:bg-gray-700'
           }`}
         >
-          {subscribed ? (
+          {toggling ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : subscribed ? (
             <>
               <Check size={13} />已追踪
             </>
@@ -100,10 +104,11 @@ function ItemCard({
 
 // Card for trending shows not yet in the DB (no detail page available)
 function TrendingCard({
-  item, subscribed, onToggle,
+  item, subscribed, toggling, onToggle,
 }: {
   item: TrendingShow
   subscribed: boolean
+  toggling?: boolean
   onToggle: () => void
 }) {
   const detailHref = item.dbId ? `/shows/${item.dbId}` : item.platformUrl
@@ -151,13 +156,16 @@ function TrendingCard({
         {meta && <p className="text-xs text-gray-400 mb-2">{meta}</p>}
         <button
           onClick={onToggle}
-          className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+          disabled={toggling}
+          className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-60 ${
             subscribed
               ? 'bg-green-50 text-green-600 border border-green-100'
               : 'bg-gray-900 text-white hover:bg-gray-700'
           }`}
         >
-          {subscribed ? (
+          {toggling ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : subscribed ? (
             <>
               <Check size={13} />已追踪
             </>
@@ -179,7 +187,9 @@ export default function DiscoverPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Record<string, unknown>[]>([])
   const [subscribed, setSubscribed] = useState<Set<string>>(new Set())
+  const [toggling, setToggling] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // Discovery content
   const [trending, setTrending] = useState<TrendingShow[]>([])
@@ -259,76 +269,111 @@ export default function DiscoverPage() {
   // ── Subscribe helpers ─────────────────────────────────────────────────────
 
   async function toggleSubscribe(id: string) {
-    const isSub = subscribed.has(id)
-    const body = mode === 'shows' ? { showId: id } : { celebrityId: id }
-    const res = await fetch('/api/subscriptions', {
-      method: isSub ? 'DELETE' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) return
-    setSubscribed((prev) => {
-      const n = new Set(prev)
-      if (isSub) n.delete(id); else n.add(id)
-      return n
-    })
+    if (toggling.has(id)) return
+    setToggling((prev) => new Set(prev).add(id))
+    try {
+      const isSub = subscribed.has(id)
+      const body = mode === 'shows' ? { showId: id } : { celebrityId: id }
+      const res = await fetch('/api/subscriptions', {
+        method: isSub ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setErrorMsg(data.error ?? '操作失败，请稍后重试')
+        setTimeout(() => setErrorMsg(null), 3000)
+        return
+      }
+      setSubscribed((prev) => {
+        const n = new Set(prev)
+        if (isSub) n.delete(id); else n.add(id)
+        return n
+      })
+    } finally {
+      setToggling((prev) => { const n = new Set(prev); n.delete(id); return n })
+    }
   }
 
   async function toggleSubscribeTyped(id: string, type: SearchMode) {
-    const isSub = subscribed.has(id)
-    const body = type === 'shows' ? { showId: id } : { celebrityId: id }
-    const res = await fetch('/api/subscriptions', {
-      method: isSub ? 'DELETE' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) return
-    setSubscribed((prev) => {
-      const n = new Set(prev)
-      if (isSub) n.delete(id); else n.add(id)
-      return n
-    })
+    if (toggling.has(id)) return
+    setToggling((prev) => new Set(prev).add(id))
+    try {
+      const isSub = subscribed.has(id)
+      const body = type === 'shows' ? { showId: id } : { celebrityId: id }
+      const res = await fetch('/api/subscriptions', {
+        method: isSub ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setErrorMsg(data.error ?? '操作失败，请稍后重试')
+        setTimeout(() => setErrorMsg(null), 3000)
+        return
+      }
+      setSubscribed((prev) => {
+        const n = new Set(prev)
+        if (isSub) n.delete(id); else n.add(id)
+        return n
+      })
+    } finally {
+      setToggling((prev) => { const n = new Set(prev); n.delete(id); return n })
+    }
   }
 
   // Subscribe to a trending show — import to DB first if needed
   async function toggleTrendingSubscribe(item: TrendingShow) {
     const trendingKey = `${item.platform}:${item.platformId}`
     let dbId = item.dbId ?? trendingDbMap[trendingKey] ?? null
+    if (dbId && toggling.has(dbId)) return
+    const tempKey = trendingKey
+    if (dbId) setToggling((prev) => new Set(prev).add(dbId!))
 
-    if (!dbId) {
-      // Import the show into the DB
-      const importRes = await fetch('/api/shows', {
-        method: 'POST',
+    try {
+      if (!dbId) {
+        // Import the show into the DB
+        const importRes = await fetch('/api/shows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            platform: item.platform,
+            platformId: item.platformId,
+            title: item.title,
+            coverImage: item.coverImage,
+            platformUrl: item.platformUrl,
+            latestEpisode: item.latestEpisode,
+            totalEpisodes: item.totalEpisodes,
+            status: item.status,
+          }),
+        })
+        if (!importRes.ok) return
+        const show = await importRes.json()
+        dbId = show.id as string
+        setTrendingDbMap((prev) => ({ ...prev, [tempKey]: dbId! }))
+        setToggling((prev) => new Set(prev).add(dbId!))
+      }
+
+      const isSub = subscribed.has(dbId)
+      const res = await fetch('/api/subscriptions', {
+        method: isSub ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: item.platform,
-          platformId: item.platformId,
-          title: item.title,
-          coverImage: item.coverImage,
-          platformUrl: item.platformUrl,
-          latestEpisode: item.latestEpisode,
-          totalEpisodes: item.totalEpisodes,
-          status: item.status,
-        }),
+        body: JSON.stringify({ showId: dbId }),
       })
-      if (!importRes.ok) return
-      const show = await importRes.json()
-      dbId = show.id as string
-      setTrendingDbMap((prev) => ({ ...prev, [trendingKey]: dbId! }))
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setErrorMsg(data.error ?? '操作失败，请稍后重试')
+        setTimeout(() => setErrorMsg(null), 3000)
+        return
+      }
+      setSubscribed((prev) => {
+        const n = new Set(prev)
+        if (isSub) n.delete(dbId!); else n.add(dbId!)
+        return n
+      })
+    } finally {
+      if (dbId) setToggling((prev) => { const n = new Set(prev); n.delete(dbId!); return n })
     }
-
-    const isSub = subscribed.has(dbId)
-    const res = await fetch('/api/subscriptions', {
-      method: isSub ? 'DELETE' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId: dbId }),
-    })
-    if (!res.ok) return
-    setSubscribed((prev) => {
-      const n = new Set(prev)
-      if (isSub) n.delete(dbId!); else n.add(dbId!)
-      return n
-    })
   }
 
   function isTrendingSubscribed(item: TrendingShow): boolean {
@@ -366,6 +411,12 @@ export default function DiscoverPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
+      {/* Error toast */}
+      {errorMsg && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl shadow-md">
+          {errorMsg}
+        </div>
+      )}
       {/* Search bar */}
       <div className="max-w-2xl mx-auto mb-8">
         <div className="relative">
@@ -426,6 +477,7 @@ export default function DiscoverPage() {
                     meta={mode === 'shows' ? showMeta(item) : celebMeta(item)}
                     status={mode === 'shows' ? (item.status as string) : undefined}
                     subscribed={subscribed.has(id)}
+                    toggling={toggling.has(id)}
                     onToggle={(id) => toggleSubscribe(id)}
                   />
                 )
@@ -465,6 +517,10 @@ export default function DiscoverPage() {
                     key={`${item.platform}:${item.platformId}`}
                     item={item}
                     subscribed={isTrendingSubscribed(item)}
+                    toggling={(() => {
+                      const dbId = item.dbId ?? trendingDbMap[`${item.platform}:${item.platformId}`]
+                      return dbId ? toggling.has(dbId) : false
+                    })()}
                     onToggle={() => toggleTrendingSubscribe(item)}
                   />
                 ))}
@@ -490,6 +546,7 @@ export default function DiscoverPage() {
                       image={item.avatar as string | undefined}
                       meta={celebMeta(item)}
                       subscribed={subscribed.has(id)}
+                      toggling={toggling.has(id)}
                       onToggle={(id) => toggleSubscribeTyped(id, 'celebrities')}
                     />
                   )
