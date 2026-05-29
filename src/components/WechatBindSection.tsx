@@ -20,7 +20,6 @@ export function WechatBindSection({ wechatOpenId: initialOpenId }: Props) {
     const status = searchParams.get('wechat')
     if (!status) return
     if (status === 'bound') {
-      setOpenId('bound') // optimistic — page will refresh with real value
       setToast({ msg: '微信绑定成功！今后剧集更新时将发送微信通知。', ok: true })
     } else if (status === 'cancelled') {
       setToast({ msg: '已取消绑定。', ok: false })
@@ -113,6 +112,7 @@ export function WechatBindSection({ wechatOpenId: initialOpenId }: Props) {
               解绑
             </button>
           ) : (
+            // eslint-disable-next-line @next/next/no-html-link-for-pages
             <a
               href="/api/auth/wechat"
               className="flex-shrink-0 px-4 py-2 text-sm font-medium bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors"
@@ -124,7 +124,7 @@ export function WechatBindSection({ wechatOpenId: initialOpenId }: Props) {
 
         {!isBound && (
           <p className="mt-3 text-xs text-gray-400 leading-relaxed">
-            💡 请在手机微信中打开此页面并点击"绑定微信"，或点击后在微信中扫码授权。
+            💡 请在手机微信中打开此页面并点击「绑定微信」，或点击后在微信中扫码授权。
           </p>
         )}
       </div>
