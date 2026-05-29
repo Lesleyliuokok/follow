@@ -28,32 +28,38 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id)
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const session = await auth()
+    if (!session?.user?.id)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Ensure User row exists — handles sessions that pre-date the signIn upsert
-  await ensureUser(session.user.id, session.user.name, session.user.image)
+    // Ensure User row exists — handles sessions that pre-date the signIn upsert
+    await ensureUser(session.user.id, session.user.name, session.user.image)
 
-  const { showId, celebrityId } = await req.json()
-  if (!showId && !celebrityId) {
-    return NextResponse.json({ error: 'showId or celebrityId required' }, { status: 400 })
+    const { showId, celebrityId } = await req.json()
+    if (!showId && !celebrityId) {
+      return NextResponse.json({ error: 'showId or celebrityId required' }, { status: 400 })
+    }
+
+    // Use upsert to avoid duplicate-constraint errors on double-click
+    const sub = await prisma.subscription.upsert({
+      where: showId
+        ? { userId_showId: { userId: session.user.id, showId } }
+        : { userId_celebrityId: { userId: session.user.id, celebrityId } },
+      create: {
+        userId: session.user.id,
+        showId: showId ?? null,
+        celebrityId: celebrityId ?? null,
+      },
+      update: {},
+    })
+
+    return NextResponse.json(sub, { status: 201 })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[POST /api/subscriptions]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  // Use upsert to avoid duplicate-constraint errors on double-click
-  const sub = await prisma.subscription.upsert({
-    where: showId
-      ? { userId_showId: { userId: session.user.id, showId } }
-      : { userId_celebrityId: { userId: session.user.id, celebrityId } },
-    create: {
-      userId: session.user.id,
-      showId: showId ?? null,
-      celebrityId: celebrityId ?? null,
-    },
-    update: {},
-  })
-
-  return NextResponse.json(sub, { status: 201 })
 }
 
 export async function DELETE(req: NextRequest) {
