@@ -43,10 +43,14 @@ export async function POST(req: NextRequest) {
 
     // Verify FK targets exist before upserting (gives a clearer error if missing)
     if (celebrityId) {
+      // Log which DB host we're connected to (masked password)
+      const dbUrl = process.env.DATABASE_URL ?? ''
+      const dbHost = dbUrl.replace(/:\/\/[^@]+@/, '://***@').split('/')[2] ?? 'unknown'
+      const totalCelebs = await prisma.celebrity.count()
       const celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
       if (!celeb) {
-        console.error('[subscriptions] celebrity not found:', celebrityId)
-        return NextResponse.json({ error: `celebrity_not_found:${celebrityId}` }, { status: 404 })
+        console.error('[subscriptions] celebrity not found:', celebrityId, '| db host:', dbHost, '| total celebrities in db:', totalCelebs)
+        return NextResponse.json({ error: `celebrity_not_found:${celebrityId} | db:${dbHost} | total:${totalCelebs}` }, { status: 404 })
       }
     }
     if (showId) {
