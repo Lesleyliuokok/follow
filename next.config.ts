@@ -1,9 +1,10 @@
 import type { NextConfig } from 'next'
-import type { Configuration } from 'webpack'
+
+type WebpackConfig = Parameters<NonNullable<NextConfig['webpack']>>[0]
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@prisma/client', '@prisma/adapter-pg', 'pg', 'undici'],
-  webpack(config: Configuration) {
+  webpack(config: WebpackConfig) {
     // Allow webpack to handle node: URI scheme (required by undici and other packages)
     config.resolve = config.resolve ?? {}
     config.resolve.fallback = { ...config.resolve.fallback }

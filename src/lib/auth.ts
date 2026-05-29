@@ -50,7 +50,6 @@ const WeChatProvider: any = {
   },
 
   // Token exchange: GET with appid/secret/code as query params
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   token: {
     url: 'https://api.weixin.qq.com/sns/oauth2/access_token',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
