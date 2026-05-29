@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendPushToSubscribers } from '@/lib/push'
-import { getWeiboUserPosts } from '@/lib/scrapers/weibo'
 import { getBilibiliUserPosts } from '@/lib/scrapers/bilibili'
-import { getXhsUserPosts } from '@/lib/scrapers/xiaohongshu'
-import { getDouyinUserPosts } from '@/lib/scrapers/douyin'
+import { getWeiboUserPosts } from '@/lib/scrapers/weibo'
 import { SOCIAL_PLATFORM_LABELS } from '@/types'
 
-// Called by Vercel Cron every 30 minutes
+// Called by Vercel Cron every 30 min — or manually via GET /api/cron/social?secret=CRON_SECRET
 export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
   const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secretParam = searchParams.get('secret')
+
+  const authorized =
+    authHeader === `Bearer ${process.env.CRON_SECRET}` ||
+    secretParam === process.env.CRON_SECRET
+
+  if (!authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -18,20 +23,30 @@ export async function GET(req: NextRequest) {
     include: { celebrity: true },
   })
 
-  const newPosts = []
+  const newPosts: { celebrity: string; platform: string; postId: string }[] = []
 
   for (const cp of celebPlatforms) {
     try {
-      let posts: { id: string; content: string; mediaUrls: string[]; postUrl: string; publishedAt: Date }[] = []
+      type Post = { id: string; content: string; mediaUrls: string[]; postUrl: string; publishedAt: Date }
+      let posts: Post[] = []
 
-      if (cp.platform === 'WEIBO') posts = await getWeiboUserPosts(cp.platformId)
-      else if (cp.platform === 'BILIBILI') posts = await getBilibiliUserPosts(cp.platformId)
-      else if (cp.platform === 'XIAOHONGSHU') posts = await getXhsUserPosts(cp.platformId)
-      else if (cp.platform === 'DOUYIN') posts = await getDouyinUserPosts(cp.platformId)
+      if (cp.platform === 'BILIBILI') {
+        posts = await getBilibiliUserPosts(cp.platformId)
+      } else if (cp.platform === 'WEIBO') {
+        posts = await getWeiboUserPosts(cp.platformId)
+      }
+      // XIAOHONGSHU / DOUYIN — need cookies, skip for now
 
       for (const post of posts) {
+        if (!post.id) continue
+
         const exists = await prisma.socialPost.findUnique({
-          where: { celebrityPlatformId_platformPostId: { celebrityPlatformId: cp.id, platformPostId: post.id } },
+          where: {
+            celebrityPlatformId_platformPostId: {
+              celebrityPlatformId: cp.id,
+              platformPostId: post.id,
+            },
+          },
         })
         if (exists) continue
 
@@ -48,7 +63,9 @@ export async function GET(req: NextRequest) {
 
         await sendPushToSubscribers(undefined, cp.celebrityId, {
           title: `${cp.celebrity.name} 有新动态`,
-          body: post.content.slice(0, 80) || `在${SOCIAL_PLATFORM_LABELS[cp.platform]}发布了新内容`,
+          body:
+            post.content.slice(0, 80) ||
+            `在 ${SOCIAL_PLATFORM_LABELS[cp.platform]} 发布了新内容`,
           icon: cp.celebrity.avatar ?? undefined,
           url: post.postUrl,
         })
@@ -61,9 +78,13 @@ export async function GET(req: NextRequest) {
         data: { lastChecked: new Date() },
       })
     } catch (err) {
-      console.error(`Failed to check celebrity platform ${cp.id}:`, err)
+      console.error(`[cron/social] failed for ${cp.id}:`, err)
     }
   }
 
-  return NextResponse.json({ checked: celebPlatforms.length, newPosts })
+  return NextResponse.json({
+    ok: true,
+    checked: celebPlatforms.length,
+    newPosts,
+  })
 }

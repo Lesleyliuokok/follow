@@ -1,11 +1,11 @@
-import type { Platform, SocialPlatform, ShowStatus } from '@/generated/prisma/enums'
+import type { Platform, SocialPlatform, ShowStatus } from '@prisma/client'
 
 export type { Platform, SocialPlatform, ShowStatus }
 
 export interface TimelineItem {
   id: string
   type: 'show_update' | 'social_post'
-  publishedAt: Date
+  publishedAt: Date | string
   // show update
   show?: {
     id: string
@@ -32,6 +32,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   BILIBILI: 'Bilibili',
   IQIYI: '爱奇艺',
   TENCENT: '腾讯视频',
+  YOUKU: '优酷',
   DOUYIN: '抖音',
 }
 
@@ -46,5 +47,6 @@ export const PLATFORM_COLORS: Record<Platform, string> = {
   BILIBILI: '#00a1d6',
   IQIYI: '#00BE06',
   TENCENT: '#FF6600',
+  YOUKU: '#1C4DA1',
   DOUYIN: '#161823',
 }

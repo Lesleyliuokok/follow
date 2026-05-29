@@ -1,18 +1,18 @@
 generator client {
-  provider        = "prisma-client"
-  output          = "../src/generated/prisma"
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
   id                String             @id @default(cuid())
-  email             String             @unique
+  email             String?            @unique // null for WeChat-only users
   name              String?
   image             String?
+  wechatOpenId      String?            @unique // bound WeChat OpenID (via Official Account OAuth)
   createdAt         DateTime           @default(now())
   subscriptions     Subscription[]
   pushSubscriptions PushSubscription[]
@@ -47,21 +47,22 @@ model Session {
 }
 
 model Show {
-  id            String         @id @default(cuid())
-  title         String
-  platform      Platform
-  platformId    String
-  coverImage    String?
-  description   String?
-  status        ShowStatus     @default(AIRING)
-  latestEpisode Int?
-  totalEpisodes Int?
-  platformUrl   String
-  lastChecked   DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  updates       ShowUpdate[]
-  subscriptions Subscription[]
+  id             String         @id @default(cuid())
+  title          String
+  platform       Platform
+  platformId     String
+  coverImage     String?
+  description    String?
+  status         ShowStatus     @default(AIRING)
+  latestEpisode  Int?
+  totalEpisodes  Int?
+  platformUrl    String
+  extraPlatforms Json?          // [{platform: "IQIYI", platformUrl: "https://..."}]
+  lastChecked    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  updates        ShowUpdate[]
+  subscriptions  Subscription[]
 
   @@unique([platform, platformId])
 }
@@ -119,7 +120,8 @@ model Subscription {
   userId      String
   showId      String?
   celebrityId String?
-  notifyPush  Boolean    @default(true)
+  notifyPush    Boolean    @default(true)
+  notifyWeChat  Boolean    @default(false) // WeChat template message (requires wechatOpenId on User)
   createdAt   DateTime   @default(now())
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   show        Show?      @relation(fields: [showId], references: [id], onDelete: Cascade)
@@ -143,6 +145,7 @@ enum Platform {
   BILIBILI
   IQIYI
   TENCENT
+  YOUKU
   DOUYIN
 }
 

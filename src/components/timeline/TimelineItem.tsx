@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { imgSrc } from '@/lib/img'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { ExternalLink, Play, Tv } from 'lucide-react'
@@ -16,7 +17,7 @@ export function TimelineItem({ item }: { item: TTimelineItem }) {
       <div className="flex gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
         <div className="relative w-16 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
           {item.show.coverImage ? (
-            <Image src={item.show.coverImage} alt={item.show.title} fill className="object-cover" />
+            <Image src={imgSrc(item.show.coverImage)!} alt={item.show.title} fill className="object-cover" />
           ) : (
             <div className="flex items-center justify-center h-full">
               <Tv size={24} className="text-gray-400" />
@@ -57,7 +58,7 @@ export function TimelineItem({ item }: { item: TTimelineItem }) {
         <div className="flex items-center gap-3 mb-3">
           <div className="relative w-10 h-10 flex-shrink-0 rounded-full overflow-hidden bg-gray-100">
             {item.celebrity.avatar ? (
-              <Image src={item.celebrity.avatar} alt={item.celebrity.name} fill className="object-cover" />
+              <Image src={imgSrc(item.celebrity.avatar)!} alt={item.celebrity.name} fill className="object-cover" />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400 text-lg font-bold">
                 {item.celebrity.name[0]}

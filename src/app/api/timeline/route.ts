@@ -61,7 +61,7 @@ export async function GET() {
       mediaUrls: p.mediaUrls,
       postUrl: p.postUrl,
     })),
-  ].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
+  ].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
 
   return NextResponse.json(items)
 }
