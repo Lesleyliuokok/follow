@@ -93,7 +93,8 @@ export async function GET(req: NextRequest) {
           data: { name: d.name, avatar: d.coverImage },
           include: { platforms: true },
         })
-      } catch {
+      } catch (e) {
+        console.error('[celebrities] douban upsert failed for', d.name, e instanceof Error ? e.message : e)
         return null
       }
     }),

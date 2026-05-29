@@ -41,6 +41,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'showId or celebrityId required' }, { status: 400 })
     }
 
+    // Verify FK targets exist before upserting (gives a clearer error if missing)
+    if (celebrityId) {
+      const celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
+      if (!celeb) {
+        console.error('[subscriptions] celebrity not found:', celebrityId)
+        return NextResponse.json({ error: `celebrity_not_found:${celebrityId}` }, { status: 404 })
+      }
+    }
+    if (showId) {
+      const show = await prisma.show.findUnique({ where: { id: showId } })
+      if (!show) {
+        console.error('[subscriptions] show not found:', showId)
+        return NextResponse.json({ error: `show_not_found:${showId}` }, { status: 404 })
+      }
+    }
+
     // Use upsert to avoid duplicate-constraint errors on double-click
     const sub = await prisma.subscription.upsert({
       where: showId
