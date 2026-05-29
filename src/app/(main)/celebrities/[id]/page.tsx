@@ -266,6 +266,7 @@ export default function CelebrityPage() {
     setLoading(false)
   }, [id])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
   async function toggleFollow() {

@@ -20,8 +20,10 @@ export function WechatBindSection({ wechatOpenId: initialOpenId }: Props) {
     const status = searchParams.get('wechat')
     if (!status) return
     if (status === 'bound') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToast({ msg: '微信绑定成功！今后剧集更新时将发送微信通知。', ok: true })
     } else if (status === 'cancelled') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToast({ msg: '已取消绑定。', ok: false })
     } else if (status === 'error') {
       const reason = searchParams.get('reason')
@@ -29,6 +31,7 @@ export function WechatBindSection({ wechatOpenId: initialOpenId }: Props) {
         reason === 'already_bound'
           ? '该微信号已绑定其他账号，请先解绑。'
           : '绑定失败，请稍后重试。'
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToast({ msg, ok: false })
     }
     // Remove query params without full refresh
