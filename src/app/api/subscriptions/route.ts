@@ -53,8 +53,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `celebrity_not_found:${celebrityId} | db:${dbHost} | total:${totalCelebs}` }, { status: 404 })
       }
     }
+    let show = null
     if (showId) {
-      const show = await prisma.show.findUnique({ where: { id: showId } })
+      show = await prisma.show.findUnique({ where: { id: showId } })
       if (!show) {
         console.error('[subscriptions] show not found:', showId)
         return NextResponse.json({ error: `show_not_found:${showId}` }, { status: 404 })
@@ -73,6 +74,23 @@ export async function POST(req: NextRequest) {
       },
       update: {},
     })
+
+    // Seed a ShowUpdate immediately so the timeline isn't empty after subscribing.
+    // Only do this if: subscribing to a show (not a celebrity), the show has a known
+    // episode count, and no ShowUpdate has been created for it yet.
+    if (show && show.latestEpisode && show.latestEpisode > 0) {
+      const existingCount = await prisma.showUpdate.count({ where: { showId: show.id } })
+      if (existingCount === 0) {
+        await prisma.showUpdate.create({
+          data: {
+            showId: show.id,
+            episode: show.latestEpisode,
+            title: null,
+            publishedAt: new Date(),
+          },
+        }).catch(() => {}) // non-fatal
+      }
+    }
 
     return NextResponse.json(sub, { status: 201 })
   } catch (e) {

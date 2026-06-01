@@ -243,7 +243,7 @@ export default function DiscoverPage() {
           mode === 'shows'
             ? `/api/shows?q=${encodeURIComponent(q)}`
             : `/api/celebrities?q=${encodeURIComponent(q)}`
-        setResults(await fetch(url).then((r) => r.json()))
+        setResults(await fetch(url, { cache: 'no-store' }).then((r) => r.json()))
       } finally {
         setLoading(false)
       }

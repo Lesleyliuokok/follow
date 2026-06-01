@@ -54,13 +54,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const q = searchParams.get('q')?.trim()
 
+  const NO_CACHE = { 'Cache-Control': 'no-store' }
+
   if (!q) {
     const celebrities = await prisma.celebrity.findMany({
       include: { platforms: true },
       orderBy: { updatedAt: 'desc' },
       take: 20,
     })
-    return NextResponse.json(celebrities)
+    return NextResponse.json(celebrities, { headers: NO_CACHE })
   }
 
   // Run local DB search + Douban celebrity search in parallel
@@ -154,7 +156,7 @@ export async function GET(req: NextRequest) {
     return true
   })
 
-  return NextResponse.json([...localCelebs, ...deduped].slice(0, 20))
+  return NextResponse.json([...localCelebs, ...deduped].slice(0, 20), { headers: NO_CACHE })
 }
 
 export async function POST(req: NextRequest) {

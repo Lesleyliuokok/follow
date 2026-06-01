@@ -21,12 +21,14 @@ export async function GET(req: NextRequest) {
   const q = searchParams.get('q')?.trim()
 
   // ── No query: return recent shows ────────────────────────────────────────
+  const NO_CACHE = { 'Cache-Control': 'no-store' }
+
   if (!q) {
     const shows = await prisma.show.findMany({
       orderBy: { updatedAt: 'desc' },
       take: 20,
     })
-    return NextResponse.json(shows)
+    return NextResponse.json(shows, { headers: NO_CACHE })
   }
 
   // ── Search: run Bilibili + iQiyi aggregated in parallel ─────────────────
@@ -221,7 +223,7 @@ export async function GET(req: NextRequest) {
     },
   )
 
-  return NextResponse.json([...localShows, ...newShows].slice(0, 20))
+  return NextResponse.json([...localShows, ...newShows].slice(0, 20), { headers: NO_CACHE })
 }
 
 export async function POST(req: NextRequest) {
