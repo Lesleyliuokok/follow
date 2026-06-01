@@ -273,7 +273,17 @@ export default function DiscoverPage() {
     setToggling((prev) => new Set(prev).add(id))
     try {
       const isSub = subscribed.has(id)
-      const body = mode === 'shows' ? { showId: id } : { celebrityId: id }
+      let body: Record<string, unknown>
+      if (mode === 'shows') {
+        body = { showId: id }
+      } else {
+        // Pass name + avatar as fallback so the server can auto-create if ID lookup fails
+        // (Neon free tier occasionally has a brief lag between create and visibility)
+        const celeb = results.find((r) => (r as { id: string }).id === id) as
+          | { id: string; name?: string; avatar?: string }
+          | undefined
+        body = { celebrityId: id, name: celeb?.name, avatar: celeb?.avatar }
+      }
       const res = await fetch('/api/subscriptions', {
         method: isSub ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -300,7 +310,15 @@ export default function DiscoverPage() {
     setToggling((prev) => new Set(prev).add(id))
     try {
       const isSub = subscribed.has(id)
-      const body = type === 'shows' ? { showId: id } : { celebrityId: id }
+      let body: Record<string, unknown>
+      if (type === 'shows') {
+        body = { showId: id }
+      } else {
+        const celeb = discoverCelebs.find((r) => (r as { id: string }).id === id) as
+          | { id: string; name?: string; avatar?: string }
+          | undefined
+        body = { celebrityId: id, name: celeb?.name, avatar: celeb?.avatar }
+      }
       const res = await fetch('/api/subscriptions', {
         method: isSub ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
