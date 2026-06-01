@@ -71,15 +71,19 @@ async function findWetvCoverId(title: string): Promise<string | null> {
   const norm = (s: string) => s.toLowerCase().replace(/[\s　]/g, '')
   const normTitle = norm(title)
 
-  // Fetch each candidate page and verify the title matches
-  for (const id of ids.slice(0, 5)) {
-    const pageHtml = await fetchHtml(`https://wetv.vip/en/play/${id}`)
+  // Fetch each candidate page (zh-tw locale has CJK titles; en locale has English titles).
+  // We try zh-tw first so Chinese search terms match the Chinese title on the page.
+  for (const id of ids.slice(0, 8)) {
+    const pageHtml =
+      (await fetchHtml(`https://wetv.vip/zh-tw/play/${id}`)) ??
+      (await fetchHtml(`https://wetv.vip/en/play/${id}`))
     if (!pageHtml) continue
 
-    const pageTitle = norm(extractPageTitle(pageHtml))
+    const rawTitle = extractPageTitle(pageHtml)
+    const pageTitle = norm(rawTitle)
     // Accept if page title contains our query title, or vice-versa
     if (pageTitle.includes(normTitle) || normTitle.includes(pageTitle.split(/[-|]/)[0])) {
-      console.log(`[wetv] matched "${title}" → cover ${id} (page title: "${extractPageTitle(pageHtml)}")`)
+      console.log(`[wetv] matched "${title}" → cover ${id} (page title: "${rawTitle}")`)
       return id
     }
   }
@@ -132,14 +136,20 @@ export async function getWetvEpisodeInfo(title: string): Promise<WetvEpisodeInfo
   }
 
   try {
-    const url = `https://wetv.vip/en/play/${wetvCoverId}`
-    const res = await undiciFetch(url, { dispatcher: agent, headers: HEADERS })
-    if (!res.ok) {
-      console.log(`[wetv] "${title}" (${wetvCoverId}): page returned ${res.status}`)
-      return null
+    // Prefer zh-tw page: shows Chinese patterns "更新到第N集 / 全M集" which are parsed reliably.
+    // Fall back to en page which shows "To EP N / All M EPs" patterns.
+    const zhUrl = `https://wetv.vip/zh-tw/play/${wetvCoverId}`
+    const enUrl = `https://wetv.vip/en/play/${wetvCoverId}`
+
+    let counts = null
+    for (const url of [zhUrl, enUrl]) {
+      const res = await undiciFetch(url, { dispatcher: agent, headers: HEADERS })
+      if (!res.ok) continue
+      const html = await res.text()
+      counts = parseEpisodeCounts(html)
+      if (counts) break
     }
-    const html = await res.text()
-    const counts = parseEpisodeCounts(html)
+
     if (!counts) {
       console.log(`[wetv] "${title}" (${wetvCoverId}): no episode count found in page`)
       return null

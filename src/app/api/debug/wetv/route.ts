@@ -84,16 +84,19 @@ export async function GET(req: NextRequest) {
   }> = []
 
   const ids = idsLoose.length > 0 ? idsLoose : idsStrict
-  for (const id of ids.slice(0, 5)) {
-    const pageUrl = `https://wetv.vip/en/play/${id}`
+  for (const id of ids.slice(0, 8)) {
+    const pageUrl = `https://wetv.vip/zh-tw/play/${id}`
     let fetchOk = false
     let rawTitle = ''
     let normPageTitle = ''
     try {
-      const res = await undiciFetch(pageUrl, { dispatcher: agent, headers: HEADERS })
-      fetchOk = res.ok
-      if (res.ok) {
-        const html = await res.text()
+      // Try zh-tw first (CJK title), fall back to en
+      let html: string | null = null
+      for (const locale of ['zh-tw', 'en']) {
+        const res = await undiciFetch(`https://wetv.vip/${locale}/play/${id}`, { dispatcher: agent, headers: HEADERS })
+        if (res.ok) { html = await res.text(); fetchOk = true; break }
+      }
+      if (html) {
         rawTitle = extractPageTitle(html)
         normPageTitle = norm(rawTitle)
       }
