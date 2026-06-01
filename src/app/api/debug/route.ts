@@ -23,17 +23,28 @@ async function testTencentCdnApi() {
     })
     const vinfo = data?.data?.vinfo ?? data?.vinfo
     const epCntA = vinfo?.ep?.cnt ?? vinfo?.ep_num ?? vinfo?.vc_num ?? vinfo?.cover?.item_count
-    // Shape B: c.video_ids array
-    const videoIds = Array.isArray(data?.c?.video_ids) ? data.c.video_ids : null
-    const epCntB = videoIds?.length ?? null
-    const epCnt = epCntA ?? epCntB
+    // Shape B: c object
+    const c = data?.c
+    const videoIds: string[] = Array.isArray(c?.video_ids) ? c.video_ids : []
+    const clipsIds: string[] = Array.isArray(c?.clips_ids) ? c.clips_ids : []
+    const episodeIds = videoIds.filter((id: string) => !clipsIds.includes(id))
+    const epCntB_raw = videoIds.length
+    const epCntB_minus_clips = episodeIds.length
+    const downright: string[] = Array.isArray(c?.downright) ? c.downright : []
+    const downrightMax = downright.length > 0
+      ? Math.max(...downright.map((n: string) => parseInt(n, 10)).filter((n: number) => !isNaN(n)))
+      : null
+    const epCnt = epCntA ?? (epCntB_minus_clips > 0 ? epCntB_minus_clips : null)
     return {
       ok: true,
       ret: data?.ret,
       epCnt,
-      shapeB_videoIds_length: epCntB,
-      cKeys: data?.c ? Object.keys(data.c) : null,
-      raw: JSON.stringify(data).slice(0, 300),
+      video_ids_total: epCntB_raw,
+      clips_ids_count: clipsIds.length,
+      episodes_after_subtracting_clips: epCntB_minus_clips,
+      downright_max: downrightMax,
+      downright_count: downright.length,
+      cKeys: c ? Object.keys(c) : null,
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
