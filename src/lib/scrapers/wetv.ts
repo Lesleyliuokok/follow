@@ -51,13 +51,15 @@ function extractPageTitle(html: string): string {
  * the expected title to reject wrong matches.
  */
 async function findWetvCoverId(title: string): Promise<string | null> {
-  const searchHtml = await fetchHtml(
-    `https://wetv.vip/en/search?keyword=${encodeURIComponent(title)}`,
-  )
+  // Try en locale first; fall back to zh-tw for CJK titles that the English site may not return
+  const enHtml = await fetchHtml(`https://wetv.vip/en/search?keyword=${encodeURIComponent(title)}`)
+  const zhHtml = await fetchHtml(`https://wetv.vip/zh-tw/search?keyword=${encodeURIComponent(title)}`)
+  const searchHtml = (enHtml ?? '') + (zhHtml ?? '')
   if (!searchHtml) return null
 
   // Collect unique cover IDs from /en/play/COVER_ID or /zh-tw/play/COVER_ID patterns
-  const re = /\/(?:en|zh-tw|zh-cn)\/play\/([a-z0-9]{10,20})(?:[-?#"'\s]|$)/g
+  // Use lookahead so "/" endings (common in HTML href) are handled correctly
+  const re = /\/(?:en|zh-tw|zh-cn)\/play\/([a-z0-9]{10,20})(?=[^a-z0-9]|$)/g
   const ids: string[] = []
   let m: RegExpExecArray | null
   while ((m = re.exec(searchHtml)) !== null) {
