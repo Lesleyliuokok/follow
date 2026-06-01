@@ -7,42 +7,60 @@ import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
 
-/** Test the Tencent vlist API (type=0 = 正片 only) for 主角 */
-async function testTencentVlistApi() {
-  const coverId = 'mzc002009g0nh88' // 主角
+const TENCENT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
+  Referer: 'https://m.v.qq.com/',
+  Accept: 'application/json, */*',
+}
+
+/** Try one URL, return { ok, status/error, keys, sample } */
+async function tryUrl(url: string, params?: Record<string, unknown>) {
   try {
-    const { data } = await axios.get('https://node.video.qq.com/x/api/vlist', {
-      params: { id: coverId, type: 0, page: 0, pagesize: 100 },
-      timeout: 8000,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
-        Referer: 'https://m.v.qq.com/',
-        Accept: 'application/json, */*',
-      },
-    })
-
-    const vlist: { title?: string }[] = Array.isArray(data?.vlist) ? data.vlist : []
-    const epNums = vlist
-      .map((ep) => {
-        const m = String(ep.title ?? '').match(/(\d+)/)
-        return m ? parseInt(m[1], 10) : NaN
-      })
-      .filter((n) => !isNaN(n) && n > 0)
-
+    const { data, status } = await axios.get(url, { params, timeout: 8000, headers: TENCENT_HEADERS })
     return {
       ok: true,
-      vlist_count: vlist.length,
-      ep_nums_found: epNums.length,
-      max_ep: epNums.length > 0 ? Math.max(...epNums) : null,
-      total_in_response: data?.total ?? data?.count ?? null,
-      is_end: data?.is_end ?? null,
-      outerKeys: data ? Object.keys(data) : null,
-      first3_titles: vlist.slice(0, 3).map((ep) => ep.title),
-      last3_titles: vlist.slice(-3).map((ep) => ep.title),
+      status,
+      keys: data && typeof data === 'object' ? Object.keys(data) : null,
+      sample: JSON.stringify(data).slice(0, 200),
     }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  } catch (e: unknown) {
+    const ae = e as { response?: { status: number }; message?: string }
+    return { ok: false, status: ae.response?.status ?? null, error: ae.message ?? String(e) }
+  }
+}
+
+/** Test multiple Tencent endpoints for 主角 */
+async function testTencentVlistApi() {
+  const coverId = 'mzc002009g0nh88'
+
+  // First: get column_id from float_vinfo2
+  let columnId: string | null = null
+  try {
+    const { data } = await axios.get('https://node.video.qq.com/x/api/float_vinfo2',
+      { params: { cid: coverId, ep_id: '', refer: 'mobile' }, timeout: 6000, headers: TENCENT_HEADERS })
+    columnId = data?.c?.column_id ?? null
+  } catch { /* ignore */ }
+
+  // Try multiple endpoint candidates in parallel
+  const [r1, r2, r3, r4] = await Promise.all([
+    // v.qq.com API (not HTML page — may not be geo-blocked)
+    tryUrl('https://v.qq.com/x/api/vlist.html', { id: coverId, type: 0, page: 0 }),
+    // channel home API
+    tryUrl('https://v.qq.com/api/v3/channel/home', { id: coverId, num: 30, page: 0, isHalf: 0 }),
+    // vlist with column_id (if available)
+    columnId
+      ? tryUrl('https://node.video.qq.com/x/api/vlist', { cid: columnId, type: 0, page: 0, num: 50 })
+      : Promise.resolve({ ok: false, status: null, error: 'no column_id' }),
+    // Alternate node endpoint
+    tryUrl('https://node.video.qq.com/x/api/ep_list', { cid: coverId, type: 0, page: 0 }),
+  ])
+
+  return {
+    column_id: columnId,
+    'v.qq.com/x/api/vlist.html': r1,
+    'v.qq.com/api/v3/channel/home': r2,
+    'node/vlist?cid=column_id': r3,
+    'node/ep_list': r4,
   }
 }
 
