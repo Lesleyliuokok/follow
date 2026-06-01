@@ -73,27 +73,29 @@ async function fetchFromCdnApi(coverId: string): Promise<{
       }
     }
 
-    // ── Shape B: { c: { title, video_ids, clips_ids, downright, ... } } ─────
-    // video_ids includes regular episodes + clips/trailers.
-    // clips_ids is the subset of non-episode content.
-    // Subtracting clips from video_ids gives the main episode count.
+    // ── Shape B: { c: { description, ... }, rec, ... } ──────────────────────
+    // The response contains text fields that may include "更新至N集/全M集" —
+    // the same text shown on the Tencent Video website sidebar.
     const c = data?.c
-    if (c && Array.isArray(c.video_ids) && c.video_ids.length > 0) {
-      const videoIds: string[] = c.video_ids
-      const clipsIds: Set<string> = new Set(Array.isArray(c.clips_ids) ? c.clips_ids : [])
-      const episodeCount = videoIds.filter((id: string) => !clipsIds.has(id)).length
+    const textFields = [
+      c?.description,
+      data?.rec,
+      data?.info,
+      data?.update_info,
+      data?.ep_desc,
+    ].filter(Boolean).join(' ')
 
-      if (episodeCount > 0) {
-        const totalEpisodes: number | null =
-          typeof c.item_count === 'number' ? c.item_count
-          : typeof c.ep_total === 'number' ? c.ep_total : null
+    if (textFields) {
+      const epMatch = textFields.match(/更新至(\d+)[集期]/)
+      const totalMatch = textFields.match(/全(\d+)[集期]/)
+      if (epMatch) {
+        const latestEpisode = parseInt(epMatch[1], 10)
+        const totalEpisodes = totalMatch ? parseInt(totalMatch[1], 10) : null
         const isCompleted =
-          c.is_end === 1 || c.is_finish === 1 ||
-          (totalEpisodes !== null && episodeCount >= totalEpisodes)
-        console.log(
-          `[tencent-cdn/B] ${coverId}: video_ids=${videoIds.length} clips=${clipsIds.size} episodes=${episodeCount}/${totalEpisodes ?? '?'} finished=${isCompleted}`,
-        )
-        return { latestEpisode: episodeCount, totalEpisodes, isCompleted }
+          c?.is_end === 1 ||
+          (totalEpisodes !== null && latestEpisode >= totalEpisodes)
+        console.log(`[tencent-cdn/text] ${coverId}: "${epMatch[0]}" → ep${latestEpisode}/${totalEpisodes ?? '?'}`)
+        return { latestEpisode, totalEpisodes, isCompleted }
       }
     }
 

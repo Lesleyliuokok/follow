@@ -34,7 +34,21 @@ async function testTencentCdnApi() {
     const downrightMax = downright.length > 0
       ? Math.max(...downright.map((n: string) => parseInt(n, 10)).filter((n: number) => !isNaN(n)))
       : null
-    const epCnt = epCntA ?? (epCntB_minus_clips > 0 ? epCntB_minus_clips : null)
+    // Try parsing description / rec for "更新至N集" text
+    const allTexts = [
+      c?.description,
+      data?.rec,
+      data?.info,
+      data?.update_info,
+      data?.ep_desc,
+    ].filter(Boolean).join(' | ')
+    const epFromText = allTexts.match(/更新至(\d+)[集期]/)?.[1] ?? null
+    const totalFromText = allTexts.match(/全(\d+)[集期]/)?.[1] ?? null
+
+    const epCnt = epCntA
+      ?? (epFromText ? parseInt(epFromText, 10) : null)
+      ?? null
+
     return {
       ok: true,
       ret: data?.ret,
@@ -44,6 +58,12 @@ async function testTencentCdnApi() {
       episodes_after_subtracting_clips: epCntB_minus_clips,
       downright_max: downrightMax,
       downright_count: downright.length,
+      // Text fields that might contain "更新至N集"
+      epFromText,
+      totalFromText,
+      c_description: c?.description ?? null,
+      rec: data?.rec ?? null,
+      outerKeys: data ? Object.keys(data) : null,
       cKeys: c ? Object.keys(c) : null,
     }
   } catch (e) {
