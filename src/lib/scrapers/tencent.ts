@@ -19,69 +19,11 @@ const http = axios.create({
   },
 })
 
-const mobileHttp = axios.create({
-  timeout: 8000,
-  headers: {
-    'User-Agent':
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    'Accept-Language': 'zh-CN,zh;q=0.9',
-    Referer: 'https://m.v.qq.com/',
-    Accept: 'application/json, */*',
-  },
-})
-
-/**
- * Strategy 0: node.video.qq.com/x/api/vlist — episode list API.
- * Same CDN domain as float_vinfo2 (confirmed accessible from Vercel US).
- * type=0 filters to 正片 (main episodes only, excludes clips/SVIP previews).
- * Each item has a numeric title ("第1集", "第2集"…); the max title number
- * is the current latest episode.
- */
-async function fetchVlistCount(coverId: string): Promise<{
-  latestEpisode: number
-  totalEpisodes: number | null
-  isCompleted: boolean
-} | null> {
-  try {
-    const { data } = await mobileHttp.get('https://node.video.qq.com/x/api/vlist', {
-      params: { id: coverId, type: 0, page: 0, pagesize: 100 },
-    })
-
-    const vlist: { title?: string; is_end?: number }[] | undefined = data?.vlist
-    if (!Array.isArray(vlist) || vlist.length === 0) return null
-
-    // Parse numeric episode titles: "第40集" → 40, or plain "40" → 40
-    const epNums = vlist
-      .map((ep) => {
-        const m = String(ep.title ?? '').match(/(\d+)/)
-        return m ? parseInt(m[1], 10) : NaN
-      })
-      .filter((n) => !isNaN(n) && n > 0)
-
-    if (epNums.length === 0) return null
-
-    const latestEpisode = Math.max(...epNums)
-    // total may appear as data.total, data.count, or be absent
-    const totalEpisodes =
-      typeof data?.total === 'number' ? data.total
-      : typeof data?.count === 'number' ? data.count
-      : null
-    const isCompleted =
-      data?.is_end === 1 ||
-      vlist.some((ep) => ep.is_end === 1) ||
-      (totalEpisodes !== null && latestEpisode >= totalEpisodes)
-
-    console.log(
-      `[tencent-vlist] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} ` +
-      `(${epNums.length} episodes in page) finished=${isCompleted}`,
-    )
-    return { latestEpisode, totalEpisodes, isCompleted }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.log(`[tencent-vlist] ${coverId}: failed (${msg.slice(0, 80)})`)
-    return null
-  }
-}
+// NOTE: Tencent episode-count APIs (vlist, ep_list, channel/home) all return
+// 404 or geo-restricted HTML from US servers. float_vinfo2 is accessible but
+// contains no episode count data (only show info, cast, description).
+// Strategy 0 is intentionally omitted — fall straight through to Strategy 1
+// (HTML scrape, geo-blocked) and Strategy 2 (iQiyi fallback, may be stale).
 
 export interface TencentEpisodeInfo {
   latestEpisode: number
@@ -179,15 +121,7 @@ export async function getTencentLatestEpisode(
     ? `https://v.qq.com/x/cover/${coverId}.html`
     : platformUrl
 
-  // ── Strategy 0: Tencent vlist API — type=0 正片 episode list ────────────
-  if (coverId) {
-    const vlistInfo = await fetchVlistCount(coverId)
-    if (vlistInfo) {
-      return { ...vlistInfo, coverUrl, updatedAt: new Date() }
-    }
-  }
-
-  // ── Strategy 1: cover page scrape (real-time, but geo-blocked on Vercel) ─
+  // ── Strategy 1: cover page scrape (real-time, geo-blocked on Vercel US) ──
   const scraped = coverId ? await scrapeFromCoverPage(coverId) : null
   if (scraped?.episodes) {
     return { ...scraped.episodes, coverUrl, updatedAt: new Date() }
