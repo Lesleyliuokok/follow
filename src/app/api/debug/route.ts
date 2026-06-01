@@ -22,8 +22,19 @@ async function testTencentCdnApi() {
       },
     })
     const vinfo = data?.data?.vinfo ?? data?.vinfo
-    const epCnt = vinfo?.ep?.cnt ?? vinfo?.ep_num ?? vinfo?.vc_num ?? vinfo?.cover?.item_count
-    return { ok: true, ret: data?.ret, epCnt, raw: JSON.stringify(data).slice(0, 300) }
+    const epCntA = vinfo?.ep?.cnt ?? vinfo?.ep_num ?? vinfo?.vc_num ?? vinfo?.cover?.item_count
+    // Shape B: c.video_ids array
+    const videoIds = Array.isArray(data?.c?.video_ids) ? data.c.video_ids : null
+    const epCntB = videoIds?.length ?? null
+    const epCnt = epCntA ?? epCntB
+    return {
+      ok: true,
+      ret: data?.ret,
+      epCnt,
+      shapeB_videoIds_length: epCntB,
+      cKeys: data?.c ? Object.keys(data.c) : null,
+      raw: JSON.stringify(data).slice(0, 300),
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }

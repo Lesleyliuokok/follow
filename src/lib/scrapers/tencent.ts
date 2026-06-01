@@ -52,34 +52,43 @@ async function fetchFromCdnApi(coverId: string): Promise<{
     // Reject explicitly non-zero ret codes
     if (data?.ret !== undefined && data.ret !== 0) return null
 
-    // Handle both response shapes
+    // ── Shape A: { vinfo: { ep: { cnt }, ep_num, vc_num, ... } } ────────────
     const vinfo = data?.data?.vinfo ?? data?.vinfo
-    if (!vinfo) return null
+    if (vinfo) {
+      const latestEpisode =
+        vinfo.ep?.cnt ??
+        vinfo.ep_num ??
+        vinfo.vc_num ??
+        vinfo.cover?.item_count ??
+        null
+      if (typeof latestEpisode === 'number' && latestEpisode > 0) {
+        const totalEpisodes = typeof vinfo.ep_total === 'number' ? vinfo.ep_total
+          : typeof vinfo.vc_total === 'number' ? vinfo.vc_total : null
+        const isCompleted =
+          vinfo.is_finish === 1 || vinfo.is_end === 1 ||
+          vinfo.ep?.has_next === false || vinfo.cover?.is_end === 1 ||
+          (totalEpisodes !== null && latestEpisode >= totalEpisodes)
+        console.log(`[tencent-cdn/A] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} finished=${isCompleted}`)
+        return { latestEpisode, totalEpisodes, isCompleted }
+      }
+    }
 
-    // Episode count: try multiple known field paths
-    const latestEpisode =
-      vinfo.ep?.cnt ??                // { vinfo: { ep: { cnt: N } } }
-      vinfo.ep_num ??                 // { data: { vinfo: { ep_num: N } } }
-      vinfo.vc_num ??
-      vinfo.cover?.item_count ??      // fallback via cover sub-object
-      null
+    // ── Shape B: { c: { title, video_ids: [epId, ...] } } ──────────────────
+    // video_ids contains one entry per released episode — length = current episode count
+    const c = data?.c
+    if (c && Array.isArray(c.video_ids) && c.video_ids.length > 0) {
+      const latestEpisode: number = c.video_ids.length
+      const totalEpisodes: number | null =
+        typeof c.item_count === 'number' ? c.item_count
+        : typeof c.ep_total === 'number' ? c.ep_total : null
+      const isCompleted =
+        c.is_end === 1 || c.is_finish === 1 ||
+        (totalEpisodes !== null && latestEpisode >= totalEpisodes)
+      console.log(`[tencent-cdn/B] ${coverId}: video_ids.length=${latestEpisode}/${totalEpisodes ?? '?'} finished=${isCompleted}`)
+      return { latestEpisode, totalEpisodes, isCompleted }
+    }
 
-    if (typeof latestEpisode !== 'number' || latestEpisode <= 0) return null
-
-    const totalEpisodes =
-      vinfo.ep_total ??
-      vinfo.vc_total ??
-      null
-
-    const isCompleted =
-      vinfo.is_finish === 1 ||
-      vinfo.is_end === 1 ||
-      vinfo.ep?.has_next === false ||
-      vinfo.cover?.is_end === 1 ||
-      (typeof totalEpisodes === 'number' && latestEpisode >= totalEpisodes)
-
-    console.log(`[tencent-cdn] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} finished=${isCompleted}`)
-    return { latestEpisode, totalEpisodes: typeof totalEpisodes === 'number' ? totalEpisodes : null, isCompleted }
+    return null
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.log(`[tencent-cdn] ${coverId}: CDN API unavailable (${msg.slice(0, 80)})`)
