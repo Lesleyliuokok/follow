@@ -1,12 +1,10 @@
 /**
  * Tencent Video show tracker.
  *
- * Tencent's website embeds show metadata (latest episode, total episodes)
- * inside an inline JS object in the static HTML — specifically in an
- * `updatedInfo` field like `更新至34集/全48集`.
- *
- * Fallback: iQiyi aggregated search API (siteId="qq") when the cover page
- * is unreachable or the pattern is absent.
+ * Strategy 0: node.video.qq.com JSON CDN API — not geo-restricted (used by mobile apps)
+ * Strategy 1: v.qq.com cover page HTML scrape — geo-blocked on Vercel US
+ * Strategy 2: iQiyi aggregated search fallback — works from US but data may be stale
+ *             for Tencent competitor shows (iQiyi updates competitor data infrequently)
  */
 import axios from 'axios'
 import { searchIqiyiShows } from '@/lib/scraper/iqiyi'
@@ -20,6 +18,74 @@ const http = axios.create({
     Referer: 'https://v.qq.com/',
   },
 })
+
+const mobileHttp = axios.create({
+  timeout: 8000,
+  headers: {
+    'User-Agent':
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Referer: 'https://m.v.qq.com/',
+    Accept: 'application/json, */*',
+  },
+})
+
+/**
+ * Strategy 0: Tencent CDN JSON API — node.video.qq.com is used by Tencent's own
+ * mobile apps and mini programs; it is a CDN domain and typically accessible from
+ * non-China IPs (unlike v.qq.com which is geo-restricted).
+ *
+ * Response shape (two documented variants):
+ *   { vinfo: { ep: { cnt: 40 }, cover: { item_count: 40, is_end: 0 } } }
+ *   { data: { vinfo: { ep_num: 40, ep_total: 48, is_finish: 0 } } }
+ */
+async function fetchFromCdnApi(coverId: string): Promise<{
+  latestEpisode: number
+  totalEpisodes: number | null
+  isCompleted: boolean
+} | null> {
+  try {
+    const { data } = await mobileHttp.get('https://node.video.qq.com/x/api/float_vinfo2', {
+      params: { cid: coverId, ep_id: '', refer: 'mobile' },
+    })
+
+    // Reject explicitly non-zero ret codes
+    if (data?.ret !== undefined && data.ret !== 0) return null
+
+    // Handle both response shapes
+    const vinfo = data?.data?.vinfo ?? data?.vinfo
+    if (!vinfo) return null
+
+    // Episode count: try multiple known field paths
+    const latestEpisode =
+      vinfo.ep?.cnt ??                // { vinfo: { ep: { cnt: N } } }
+      vinfo.ep_num ??                 // { data: { vinfo: { ep_num: N } } }
+      vinfo.vc_num ??
+      vinfo.cover?.item_count ??      // fallback via cover sub-object
+      null
+
+    if (typeof latestEpisode !== 'number' || latestEpisode <= 0) return null
+
+    const totalEpisodes =
+      vinfo.ep_total ??
+      vinfo.vc_total ??
+      null
+
+    const isCompleted =
+      vinfo.is_finish === 1 ||
+      vinfo.is_end === 1 ||
+      vinfo.ep?.has_next === false ||
+      vinfo.cover?.is_end === 1 ||
+      (typeof totalEpisodes === 'number' && latestEpisode >= totalEpisodes)
+
+    console.log(`[tencent-cdn] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} finished=${isCompleted}`)
+    return { latestEpisode, totalEpisodes: typeof totalEpisodes === 'number' ? totalEpisodes : null, isCompleted }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.log(`[tencent-cdn] ${coverId}: CDN API unavailable (${msg.slice(0, 80)})`)
+    return null
+  }
+}
 
 export interface TencentEpisodeInfo {
   latestEpisode: number
@@ -117,7 +183,15 @@ export async function getTencentLatestEpisode(
     ? `https://v.qq.com/x/cover/${coverId}.html`
     : platformUrl
 
-  // ── Strategy 1: cover page scrape (real-time, no API quota) ─────────────
+  // ── Strategy 0: Tencent CDN JSON API (not geo-blocked, real-time) ────────
+  if (coverId) {
+    const cdnInfo = await fetchFromCdnApi(coverId)
+    if (cdnInfo) {
+      return { ...cdnInfo, coverUrl, updatedAt: new Date() }
+    }
+  }
+
+  // ── Strategy 1: cover page scrape (real-time, but geo-blocked on Vercel) ─
   const scraped = coverId ? await scrapeFromCoverPage(coverId) : null
   if (scraped?.episodes) {
     return { ...scraped.episodes, coverUrl, updatedAt: new Date() }
