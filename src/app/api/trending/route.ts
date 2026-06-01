@@ -339,9 +339,16 @@ async function fetchYoukuHot(): Promise<TrendingShow[]> {
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
+export const dynamic = 'force-dynamic'
+
+// CDN cache headers — Vercel edge caches for 1 hour, serves stale up to 24 h while refreshing
+const CDN_HEADERS = {
+  'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+}
+
 export async function GET() {
   if (_cache && Date.now() - _cache.ts < CACHE_TTL) {
-    return NextResponse.json(_cache.data)
+    return NextResponse.json(_cache.data, { headers: CDN_HEADERS })
   }
 
   // All fetches in parallel — individual failures return [] gracefully
@@ -420,5 +427,5 @@ export async function GET() {
   }
 
   _cache = { data: top30, ts: Date.now() }
-  return NextResponse.json(top30)
+  return NextResponse.json(top30, { headers: CDN_HEADERS })
 }
