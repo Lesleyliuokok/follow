@@ -271,10 +271,19 @@ export default function CelebrityPage() {
 
   async function toggleFollow() {
     setFollowLoading(true)
+    const body = isFollowed
+      ? { celebrityId: id }
+      : {
+          // Pass name + avatar so the server can self-heal if the celebrity ID isn't
+          // immediately visible on Neon (brief replication lag on free tier)
+          celebrityId: id,
+          name: celebrity?.name,
+          avatar: celebrity?.avatar,
+        }
     await fetch('/api/subscriptions', {
       method: isFollowed ? 'DELETE' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ celebrityId: id }),
+      body: JSON.stringify(body),
     })
     setIsFollowed((v) => !v)
     setFollowLoading(false)
