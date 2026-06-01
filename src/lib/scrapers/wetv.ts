@@ -23,28 +23,67 @@ export interface WetvEpisodeInfo {
   wetvCoverId: string
 }
 
-/**
- * Search WeTV for a show and return the first matching WeTV cover ID.
- * WeTV URLs look like: /en/play/11itl2izusuiuz6-The_Lead
- */
-async function findWetvCoverId(title: string): Promise<string | null> {
+/** Fetch a URL and return the HTML, or null on error */
+async function fetchHtml(url: string): Promise<string | null> {
   try {
-    const url = `https://wetv.vip/en/search?keyword=${encodeURIComponent(title)}`
     const res = await undiciFetch(url, { dispatcher: agent, headers: HEADERS })
-    if (!res.ok) return null
-    const html = await res.text()
-
-    // Extract cover IDs from /en/play/COVER_ID or /zh-tw/play/COVER_ID patterns.
-    // WeTV cover IDs are lowercase alphanumeric, typically 16 chars.
-    const re = /\/(?:en|zh-tw|zh-cn)\/play\/([a-z0-9]{10,20})(?:[-?#"']|$)/g
-    const ids = new Set<string>()
-    let m: RegExpExecArray | null
-    while ((m = re.exec(html)) !== null) ids.add(m[1])
-
-    return ids.size > 0 ? [...ids][0] : null
+    return res.ok ? await res.text() : null
   } catch {
     return null
   }
+}
+
+/** Extract the show title from a WeTV page (og:title or <title> tag) */
+function extractPageTitle(html: string): string {
+  return (
+    html.match(/property="og:title"\s+content="([^"]+)"/)?.[1] ??
+    html.match(/content="([^"]+)"\s+property="og:title"/)?.[1] ??
+    html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ??
+    ''
+  )
+}
+
+/**
+ * Search WeTV for a show and return the best-matching WeTV cover ID.
+ *
+ * Searches wetv.vip/en/search, extracts all cover-ID candidates, then
+ * fetches each show page (up to 5) and compares the page title against
+ * the expected title to reject wrong matches.
+ */
+async function findWetvCoverId(title: string): Promise<string | null> {
+  const searchHtml = await fetchHtml(
+    `https://wetv.vip/en/search?keyword=${encodeURIComponent(title)}`,
+  )
+  if (!searchHtml) return null
+
+  // Collect unique cover IDs from /en/play/COVER_ID or /zh-tw/play/COVER_ID patterns
+  const re = /\/(?:en|zh-tw|zh-cn)\/play\/([a-z0-9]{10,20})(?:[-?#"'\s]|$)/g
+  const ids: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(searchHtml)) !== null) {
+    if (!ids.includes(m[1])) ids.push(m[1])
+  }
+  if (ids.length === 0) return null
+
+  // Normalize expected title for comparison (handles spaces, case, CJK)
+  const norm = (s: string) => s.toLowerCase().replace(/[\s　]/g, '')
+  const normTitle = norm(title)
+
+  // Fetch each candidate page and verify the title matches
+  for (const id of ids.slice(0, 5)) {
+    const pageHtml = await fetchHtml(`https://wetv.vip/en/play/${id}`)
+    if (!pageHtml) continue
+
+    const pageTitle = norm(extractPageTitle(pageHtml))
+    // Accept if page title contains our query title, or vice-versa
+    if (pageTitle.includes(normTitle) || normTitle.includes(pageTitle.split(/[-|]/)[0])) {
+      console.log(`[wetv] matched "${title}" → cover ${id} (page title: "${extractPageTitle(pageHtml)}")`)
+      return id
+    }
+  }
+
+  console.log(`[wetv] no title match found for "${title}" among ${ids.length} candidates`)
+  return null
 }
 
 /**
