@@ -8,6 +8,7 @@
  */
 import axios from 'axios'
 import { searchIqiyiShows } from '@/lib/scraper/iqiyi'
+import { getWetvEpisodeInfo } from '@/lib/scrapers/wetv'
 
 const http = axios.create({
   timeout: 12000,
@@ -19,11 +20,9 @@ const http = axios.create({
   },
 })
 
-// NOTE: Tencent episode-count APIs (vlist, ep_list, channel/home) all return
-// 404 or geo-restricted HTML from US servers. float_vinfo2 is accessible but
-// contains no episode count data (only show info, cast, description).
-// Strategy 0 is intentionally omitted — fall straight through to Strategy 1
-// (HTML scrape, geo-blocked) and Strategy 2 (iQiyi fallback, may be stale).
+// NOTE on Tencent direct APIs: vlist/ep_list/channel/home all 404 from US
+// servers; float_vinfo2 is reachable but has no episode count field; the
+// cover-page HTML is geo-blocked. Strategy 0 uses WeTV instead.
 
 export interface TencentEpisodeInfo {
   latestEpisode: number
@@ -120,6 +119,19 @@ export async function getTencentLatestEpisode(
   const coverUrl = coverId
     ? `https://v.qq.com/x/cover/${coverId}.html`
     : platformUrl
+
+  // ── Strategy 0: WeTV (wetv.vip) — Tencent's international platform ───────
+  // WeTV is accessible from US servers. Pages display "To EP N / All M EPs".
+  const wetv = await getWetvEpisodeInfo(title)
+  if (wetv) {
+    return {
+      latestEpisode: wetv.latestEpisode,
+      totalEpisodes: wetv.totalEpisodes,
+      isCompleted: wetv.isCompleted,
+      coverUrl,
+      updatedAt: new Date(),
+    }
+  }
 
   // ── Strategy 1: cover page scrape (real-time, geo-blocked on Vercel US) ──
   const scraped = coverId ? await scrapeFromCoverPage(coverId) : null

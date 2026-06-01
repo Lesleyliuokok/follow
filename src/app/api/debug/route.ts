@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { searchBilibiliUsers } from '@/lib/scraper/bilibili'
 import { searchDoubanCelebrities } from '@/lib/scraper/douban'
 import { searchIqiyiShows } from '@/lib/scraper/iqiyi'
+import { getWetvEpisodeInfo } from '@/lib/scrapers/wetv'
 import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,7 @@ export async function GET() {
   ])
 
   // 2. External scrapers
-  const [biliUsers, doubanCelebs, iqiyiZhuJue] = await Promise.allSettled([
+  const [biliUsers, doubanCelebs, iqiyiZhuJue, wetvZhuJue] = await Promise.allSettled([
     searchBilibiliUsers('刘浩存'),
     searchDoubanCelebrities('刘浩存'),
     searchIqiyiShows('主角', 50).then((results) => {
@@ -39,9 +40,10 @@ export async function GET() {
         ? { found: true, latestEpisode: match.latestEpisode, totalEpisodes: match.totalEpisodes }
         : { found: false, totalResults: results.length }
     }),
+    getWetvEpisodeInfo('主角'),
   ])
 
-  // 3. Tencent CDN reachability (float_vinfo2 — no episode count, but confirms connectivity)
+  // 3. Tencent CDN reachability check
   let tencentReachable = false
   try {
     const { data } = await axios.get('https://node.video.qq.com/x/api/float_vinfo2', {
@@ -68,9 +70,10 @@ export async function GET() {
         doubanCelebs.status === 'fulfilled' ? doubanCelebs.value.map((c) => c.name) : `error: ${(doubanCelebs as PromiseRejectedResult).reason}`,
       iqiyi_zhuJue:
         iqiyiZhuJue.status === 'fulfilled' ? iqiyiZhuJue.value : `error: ${(iqiyiZhuJue as PromiseRejectedResult).reason}`,
+      wetv_zhuJue:
+        wetvZhuJue.status === 'fulfilled' ? wetvZhuJue.value : `error: ${(wetvZhuJue as PromiseRejectedResult).reason}`,
     },
     tencent: {
-      note: 'Tencent episode-count APIs are geo-blocked from US servers. Manual correction via /api/admin/shows is required.',
       cdn_reachable: tencentReachable,
     },
   })
