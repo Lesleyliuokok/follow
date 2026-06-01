@@ -7,12 +7,12 @@ import axios from 'axios'
 
 export const dynamic = 'force-dynamic'
 
-/** Quick test of the Tencent CDN JSON API for 主角 */
-async function testTencentCdnApi() {
+/** Test the Tencent vlist API (type=0 = 正片 only) for 主角 */
+async function testTencentVlistApi() {
   const coverId = 'mzc002009g0nh88' // 主角
   try {
-    const { data } = await axios.get('https://node.video.qq.com/x/api/float_vinfo2', {
-      params: { cid: coverId, ep_id: '', refer: 'mobile' },
+    const { data } = await axios.get('https://node.video.qq.com/x/api/vlist', {
+      params: { id: coverId, type: 0, page: 0, pagesize: 100 },
       timeout: 8000,
       headers: {
         'User-Agent':
@@ -21,50 +21,25 @@ async function testTencentCdnApi() {
         Accept: 'application/json, */*',
       },
     })
-    const vinfo = data?.data?.vinfo ?? data?.vinfo
-    const epCntA = vinfo?.ep?.cnt ?? vinfo?.ep_num ?? vinfo?.vc_num ?? vinfo?.cover?.item_count
-    // Shape B: c object
-    const c = data?.c
-    const videoIds: string[] = Array.isArray(c?.video_ids) ? c.video_ids : []
-    const clipsIds: string[] = Array.isArray(c?.clips_ids) ? c.clips_ids : []
-    const episodeIds = videoIds.filter((id: string) => !clipsIds.includes(id))
-    const epCntB_raw = videoIds.length
-    const epCntB_minus_clips = episodeIds.length
-    const downright: string[] = Array.isArray(c?.downright) ? c.downright : []
-    const downrightMax = downright.length > 0
-      ? Math.max(...downright.map((n: string) => parseInt(n, 10)).filter((n: number) => !isNaN(n)))
-      : null
-    // Try parsing description / rec for "更新至N集" text
-    const allTexts = [
-      c?.description,
-      data?.rec,
-      data?.info,
-      data?.update_info,
-      data?.ep_desc,
-    ].filter(Boolean).join(' | ')
-    const epFromText = allTexts.match(/更新至(\d+)[集期]/)?.[1] ?? null
-    const totalFromText = allTexts.match(/全(\d+)[集期]/)?.[1] ?? null
 
-    const epCnt = epCntA
-      ?? (epFromText ? parseInt(epFromText, 10) : null)
-      ?? null
+    const vlist: { title?: string }[] = Array.isArray(data?.vlist) ? data.vlist : []
+    const epNums = vlist
+      .map((ep) => {
+        const m = String(ep.title ?? '').match(/(\d+)/)
+        return m ? parseInt(m[1], 10) : NaN
+      })
+      .filter((n) => !isNaN(n) && n > 0)
 
     return {
       ok: true,
-      ret: data?.ret,
-      epCnt,
-      video_ids_total: epCntB_raw,
-      clips_ids_count: clipsIds.length,
-      episodes_after_subtracting_clips: epCntB_minus_clips,
-      downright_max: downrightMax,
-      downright_count: downright.length,
-      // Text fields that might contain "更新至N集"
-      epFromText,
-      totalFromText,
-      c_description: c?.description ?? null,
-      rec: data?.rec ?? null,
+      vlist_count: vlist.length,
+      ep_nums_found: epNums.length,
+      max_ep: epNums.length > 0 ? Math.max(...epNums) : null,
+      total_in_response: data?.total ?? data?.count ?? null,
+      is_end: data?.is_end ?? null,
       outerKeys: data ? Object.keys(data) : null,
-      cKeys: c ? Object.keys(c) : null,
+      first3_titles: vlist.slice(0, 3).map((ep) => ep.title),
+      last3_titles: vlist.slice(-3).map((ep) => ep.title),
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -111,7 +86,7 @@ export async function GET() {
         ? { found: true, latestEpisode: match.latestEpisode, totalEpisodes: match.totalEpisodes }
         : { found: false, totalResults: results.length }
     }),
-    testTencentCdnApi(),
+    testTencentVlistApi(),
   ])
 
   const dbHost = (process.env.DATABASE_URL ?? '')
@@ -142,7 +117,7 @@ export async function GET() {
         iqiyiMain.status === 'fulfilled'
           ? iqiyiMain.value
           : `error: ${(iqiyiMain as PromiseRejectedResult).reason}`,
-      tencent_cdn_api:
+      tencent_vlist_api:
         tencentCdn.status === 'fulfilled'
           ? tencentCdn.value
           : `error: ${(tencentCdn as PromiseRejectedResult).reason}`,

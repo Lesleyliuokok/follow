@@ -31,78 +31,54 @@ const mobileHttp = axios.create({
 })
 
 /**
- * Strategy 0: Tencent CDN JSON API — node.video.qq.com is used by Tencent's own
- * mobile apps and mini programs; it is a CDN domain and typically accessible from
- * non-China IPs (unlike v.qq.com which is geo-restricted).
- *
- * Response shape (two documented variants):
- *   { vinfo: { ep: { cnt: 40 }, cover: { item_count: 40, is_end: 0 } } }
- *   { data: { vinfo: { ep_num: 40, ep_total: 48, is_finish: 0 } } }
+ * Strategy 0: node.video.qq.com/x/api/vlist — episode list API.
+ * Same CDN domain as float_vinfo2 (confirmed accessible from Vercel US).
+ * type=0 filters to 正片 (main episodes only, excludes clips/SVIP previews).
+ * Each item has a numeric title ("第1集", "第2集"…); the max title number
+ * is the current latest episode.
  */
-async function fetchFromCdnApi(coverId: string): Promise<{
+async function fetchVlistCount(coverId: string): Promise<{
   latestEpisode: number
   totalEpisodes: number | null
   isCompleted: boolean
 } | null> {
   try {
-    const { data } = await mobileHttp.get('https://node.video.qq.com/x/api/float_vinfo2', {
-      params: { cid: coverId, ep_id: '', refer: 'mobile' },
+    const { data } = await mobileHttp.get('https://node.video.qq.com/x/api/vlist', {
+      params: { id: coverId, type: 0, page: 0, pagesize: 100 },
     })
 
-    // Reject explicitly non-zero ret codes
-    if (data?.ret !== undefined && data.ret !== 0) return null
+    const vlist: { title?: string; is_end?: number }[] | undefined = data?.vlist
+    if (!Array.isArray(vlist) || vlist.length === 0) return null
 
-    // ── Shape A: { vinfo: { ep: { cnt }, ep_num, vc_num, ... } } ────────────
-    const vinfo = data?.data?.vinfo ?? data?.vinfo
-    if (vinfo) {
-      const latestEpisode =
-        vinfo.ep?.cnt ??
-        vinfo.ep_num ??
-        vinfo.vc_num ??
-        vinfo.cover?.item_count ??
-        null
-      if (typeof latestEpisode === 'number' && latestEpisode > 0) {
-        const totalEpisodes = typeof vinfo.ep_total === 'number' ? vinfo.ep_total
-          : typeof vinfo.vc_total === 'number' ? vinfo.vc_total : null
-        const isCompleted =
-          vinfo.is_finish === 1 || vinfo.is_end === 1 ||
-          vinfo.ep?.has_next === false || vinfo.cover?.is_end === 1 ||
-          (totalEpisodes !== null && latestEpisode >= totalEpisodes)
-        console.log(`[tencent-cdn/A] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} finished=${isCompleted}`)
-        return { latestEpisode, totalEpisodes, isCompleted }
-      }
-    }
+    // Parse numeric episode titles: "第40集" → 40, or plain "40" → 40
+    const epNums = vlist
+      .map((ep) => {
+        const m = String(ep.title ?? '').match(/(\d+)/)
+        return m ? parseInt(m[1], 10) : NaN
+      })
+      .filter((n) => !isNaN(n) && n > 0)
 
-    // ── Shape B: { c: { description, ... }, rec, ... } ──────────────────────
-    // The response contains text fields that may include "更新至N集/全M集" —
-    // the same text shown on the Tencent Video website sidebar.
-    const c = data?.c
-    const textFields = [
-      c?.description,
-      data?.rec,
-      data?.info,
-      data?.update_info,
-      data?.ep_desc,
-    ].filter(Boolean).join(' ')
+    if (epNums.length === 0) return null
 
-    if (textFields) {
-      const epMatch = textFields.match(/更新至(\d+)[集期]/)
-      const totalMatch = textFields.match(/全(\d+)[集期]/)
-      if (epMatch) {
-        const latestEpisode = parseInt(epMatch[1], 10)
-        const totalEpisodes = totalMatch ? parseInt(totalMatch[1], 10) : null
-        const isCompleted =
-          c?.is_end === 1 ||
-          (totalEpisodes !== null && latestEpisode >= totalEpisodes)
-        console.log(`[tencent-cdn/text] ${coverId}: "${epMatch[0]}" → ep${latestEpisode}/${totalEpisodes ?? '?'}`)
-        return { latestEpisode, totalEpisodes, isCompleted }
-      }
-    }
+    const latestEpisode = Math.max(...epNums)
+    // total may appear as data.total, data.count, or be absent
+    const totalEpisodes =
+      typeof data?.total === 'number' ? data.total
+      : typeof data?.count === 'number' ? data.count
+      : null
+    const isCompleted =
+      data?.is_end === 1 ||
+      vlist.some((ep) => ep.is_end === 1) ||
+      (totalEpisodes !== null && latestEpisode >= totalEpisodes)
 
-    return null
+    console.log(
+      `[tencent-vlist] ${coverId}: ep${latestEpisode}/${totalEpisodes ?? '?'} ` +
+      `(${epNums.length} episodes in page) finished=${isCompleted}`,
+    )
+    return { latestEpisode, totalEpisodes, isCompleted }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.log(`[tencent-cdn] ${coverId}: CDN API unavailable (${msg.slice(0, 80)})`)
+    console.log(`[tencent-vlist] ${coverId}: failed (${msg.slice(0, 80)})`)
     return null
   }
 }
@@ -203,11 +179,11 @@ export async function getTencentLatestEpisode(
     ? `https://v.qq.com/x/cover/${coverId}.html`
     : platformUrl
 
-  // ── Strategy 0: Tencent CDN JSON API (not geo-blocked, real-time) ────────
+  // ── Strategy 0: Tencent vlist API — type=0 正片 episode list ────────────
   if (coverId) {
-    const cdnInfo = await fetchFromCdnApi(coverId)
-    if (cdnInfo) {
-      return { ...cdnInfo, coverUrl, updatedAt: new Date() }
+    const vlistInfo = await fetchVlistCount(coverId)
+    if (vlistInfo) {
+      return { ...vlistInfo, coverUrl, updatedAt: new Date() }
     }
   }
 
