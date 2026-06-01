@@ -94,6 +94,66 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true, before: { latestEpisode: show.latestEpisode, totalEpisodes: show.totalEpisodes, status: show.status }, after: updated })
 }
 
+/** DELETE: remove a show (and its ShowUpdates + Subscriptions) by id or title */
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const secretParam = searchParams.get('secret')
+  const authHeader = req.headers.get('authorization')
+
+  const authorized =
+    authHeader === `Bearer ${process.env.CRON_SECRET}` ||
+    secretParam === process.env.CRON_SECRET
+
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const body = await req.json()
+  const { id, title } = body
+
+  if (!id && !title) {
+    return NextResponse.json({ error: 'id or title required' }, { status: 400 })
+  }
+
+  // Find the show
+  let show = null
+  if (id) {
+    show = await prisma.show.findUnique({ where: { id } })
+  } else {
+    const normalized = String(title).replace(/\s+/g, '')
+    const candidates = await prisma.show.findMany({
+      where: { title: { contains: String(title).split('').slice(0, 4).join(''), mode: 'insensitive' } },
+      take: 10,
+    })
+    show =
+      candidates.find((c) => c.title.replace(/\s+/g, '') === normalized) ??
+      candidates.find((c) =>
+        c.title.replace(/\s+/g, '').includes(normalized) ||
+        normalized.includes(c.title.replace(/\s+/g, '')),
+      ) ??
+      null
+  }
+
+  if (!show) {
+    const all = await prisma.show.findMany({ select: { id: true, title: true, platform: true }, orderBy: { title: 'asc' } })
+    return NextResponse.json({ error: 'Show not found', allShows: all }, { status: 404 })
+  }
+
+  // Delete cascade: ShowUpdates → Subscriptions → Show
+  const [deletedUpdates, deletedSubs] = await Promise.all([
+    prisma.showUpdate.deleteMany({ where: { showId: show.id } }),
+    prisma.subscription.deleteMany({ where: { showId: show.id } }),
+  ])
+  await prisma.show.delete({ where: { id: show.id } })
+
+  console.log(`[admin/shows] deleted "${show.title}" (${show.id}), updates: ${deletedUpdates.count}, subs: ${deletedSubs.count}`)
+  return NextResponse.json({
+    ok: true,
+    deleted: { id: show.id, title: show.title, platform: show.platform },
+    cascade: { showUpdates: deletedUpdates.count, subscriptions: deletedSubs.count },
+  })
+}
+
 /** GET: list all shows (for inspection) */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
