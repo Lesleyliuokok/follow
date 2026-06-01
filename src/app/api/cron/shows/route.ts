@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+
+export const dynamic = 'force-dynamic'
 import { sendPushToSubscribers } from '@/lib/push'
 import { sendWeChatToSubscribers } from '@/lib/wechat'
 import { getLatestBilibiliEpisode } from '@/lib/scrapers/bilibili'
@@ -107,6 +109,8 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Use freshly scraped value, or fall back to what's already stored in the DB
+      const effectiveEpisode = latestEpisode ?? show.latestEpisode
       const episodeAdvanced = latestEpisode !== null && latestEpisode > (show.latestEpisode ?? 0)
       const statusChanged = newStatus !== show.status
 
@@ -127,33 +131,44 @@ export async function GET(req: NextRequest) {
         console.log(`[cron/shows] ${show.title} status ${show.status} → ${newStatus}`)
       }
 
-      // Send push notification only when a genuinely new episode is out on a non-completed show
-      if (episodeAdvanced && newStatus !== 'COMPLETED') {
+      // Create ShowUpdate if: (a) episode advanced, OR (b) first-track seed
+      // For (b): show has no ShowUpdate yet — seed from stored latestEpisode even if
+      // today's scrape failed (e.g., platform geo-blocked Vercel US servers)
+      const existingUpdateCount = await prisma.showUpdate.count({ where: { showId: show.id } })
+      const isFirstTrack = existingUpdateCount === 0 && effectiveEpisode !== null && effectiveEpisode > 0
+
+      if (episodeAdvanced || isFirstTrack) {
+        const episodeToRecord = (latestEpisode ?? effectiveEpisode)!
         await prisma.showUpdate.create({
           data: {
             showId: show.id,
-            episode: latestEpisode!,
+            episode: episodeToRecord,
             title: episodeTitle,
             publishedAt: now,
           },
         })
-        // Browser push + WeChat template message in parallel
-        await Promise.allSettled([
-          sendPushToSubscribers(show.id, undefined, {
-            title: `${show.title} 更新了！`,
-            body: `第 ${latestEpisode} 集已上线${episodeTitle ? `：${episodeTitle}` : ''}`,
-            icon: show.coverImage ?? undefined,
-            url: show.platformUrl,
-          }),
-          sendWeChatToSubscribers(show.id, {
-            showTitle: show.title,
-            episode: latestEpisode!,
-            episodeTitle,
-            showUrl: show.platformUrl,
-          }),
-        ])
-        results.push({ title: show.title, newEpisode: latestEpisode! })
-        console.log(`[cron/shows] ${show.title} → ep ${latestEpisode}`)
+        results.push({ title: show.title, newEpisode: episodeToRecord })
+        console.log(
+          `[cron/shows] ${show.title} → ep ${episodeToRecord} (${isFirstTrack ? 'first-track seed' : 'new episode'})`,
+        )
+
+        // Only send push/WeChat notifications for genuine new episodes (not first-track seeds)
+        if (episodeAdvanced && newStatus !== 'COMPLETED') {
+          await Promise.allSettled([
+            sendPushToSubscribers(show.id, undefined, {
+              title: `${show.title} 更新了！`,
+              body: `第 ${episodeToRecord} 集已上线${episodeTitle ? `：${episodeTitle}` : ''}`,
+              icon: show.coverImage ?? undefined,
+              url: show.platformUrl,
+            }),
+            sendWeChatToSubscribers(show.id, {
+              showTitle: show.title,
+              episode: episodeToRecord,
+              episodeTitle,
+              showUrl: show.platformUrl,
+            }),
+          ])
+        }
       }
 
       await prisma.show.update({ where: { id: show.id }, data: updateData })

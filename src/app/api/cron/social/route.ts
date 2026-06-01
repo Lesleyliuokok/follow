@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendPushToSubscribers } from '@/lib/push'
+
+export const dynamic = 'force-dynamic'
 import { getBilibiliUserPosts } from '@/lib/scrapers/bilibili'
 import { getWeiboUserPosts } from '@/lib/scrapers/weibo'
 import { SOCIAL_PLATFORM_LABELS } from '@/types'
