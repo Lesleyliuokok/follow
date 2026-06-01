@@ -43,29 +43,45 @@ export async function POST(req: NextRequest) {
 
     // ── Resolve celebrity ────────────────────────────────────────────────────
     // Neon free tier can have a brief lag between a write in one serverless
-    // function instance and visibility in another. If we can't find the celebrity
-    // by ID, recover using the name sent from the frontend (self-healing).
+    // function instance and visibility in another. Retry once, then fall back
+    // to name-based lookup, then auto-create.
+    const safeName = typeof name === 'string' && name.trim() ? name.trim() : null
+
     let resolvedCelebId: string | null = null
     if (celebrityId) {
       let celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
 
-      if (!celeb && name) {
-        // Fallback 1: find by name (case-insensitive)
+      // Neon lag: retry once after a short pause before giving up on the ID
+      if (!celeb) {
+        await new Promise((r) => setTimeout(r, 350))
+        celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
+      }
+
+      if (!celeb && safeName) {
+        // Fallback 1: find by name (handles stale client IDs after DB re-seed)
         celeb = await prisma.celebrity.findFirst({
-          where: { name: { equals: name, mode: 'insensitive' } },
+          where: { name: { equals: safeName, mode: 'insensitive' } },
         })
       }
 
-      if (!celeb && name) {
+      if (!celeb && safeName) {
         // Fallback 2: create the celebrity here (last resort)
-        console.warn('[subscriptions] auto-creating celebrity after ID miss:', name)
-        celeb = await prisma.celebrity.create({
-          data: { name, avatar: avatar ?? null },
-        })
+        console.warn('[subscriptions] auto-creating celebrity after ID miss:', safeName)
+        try {
+          celeb = await prisma.celebrity.create({
+            data: { name: safeName, avatar: avatar ?? null },
+          })
+        } catch {
+          // Concurrent creation race — another request may have created it first
+          celeb = await prisma.celebrity.findFirst({
+            where: { name: { equals: safeName, mode: 'insensitive' } },
+          })
+        }
       }
 
       if (!celeb) {
         const dbHost = (process.env.DATABASE_URL ?? '').replace(/:\/\/[^@]+@/, '://***@').split('/')[2] ?? 'unknown'
+        console.error('[subscriptions] celebrity not found after all fallbacks:', { id: celebrityId, name: safeName })
         return NextResponse.json(
           { error: `celebrity_not_found:${celebrityId} | db:${dbHost}` },
           { status: 404 },
