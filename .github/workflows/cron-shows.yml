@@ -1,0 +1,22 @@
+name: Cron — Update Shows
+
+on:
+  schedule:
+    # Run every hour at :05 (UTC) — offset by 5 min to avoid GitHub Actions congestion
+    - cron: '5 * * * *'
+  workflow_dispatch: {}   # allow manual trigger from GitHub Actions UI
+
+jobs:
+  update-shows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/cron/shows
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/shows")
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Cron failed with status $STATUS"
+            exit 1
+          fi

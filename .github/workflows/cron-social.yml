@@ -1,0 +1,22 @@
+name: Cron — Update Social Posts
+
+on:
+  schedule:
+    # Run every 30 minutes
+    - cron: '10,40 * * * *'
+  workflow_dispatch: {}   # allow manual trigger from GitHub Actions UI
+
+jobs:
+  update-social:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/cron/social
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/social")
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Cron failed with status $STATUS"
+            exit 1
+          fi
