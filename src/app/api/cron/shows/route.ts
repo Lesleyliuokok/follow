@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-
-export const dynamic = 'force-dynamic'
 import { sendPushToSubscribers } from '@/lib/push'
 import { sendWeChatToSubscribers } from '@/lib/wechat'
 import { getLatestBilibiliEpisode } from '@/lib/scrapers/bilibili'
 import { getIqiyiLatestEpisode } from '@/lib/scrapers/iqiyi'
 import { getTencentLatestEpisode } from '@/lib/scrapers/tencent'
 import { getYoukuLatestEpisode } from '@/lib/scrapers/youku'
+import { searchIqiyiShows } from '@/lib/scraper/iqiyi'
 import { PLATFORM_LABELS } from '@/types'
+
+export const dynamic = 'force-dynamic'
 
 // Called by Vercel Cron every 30 min — or manually via GET /api/cron/shows?secret=CRON_SECRET
 export async function GET(req: NextRequest) {
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
     where: { status: { in: ['AIRING', 'UPCOMING'] } },
   })
 
-  const results: { title: string; newEpisode: number }[] = []
+  const results: { title: string; newEpisode: number; action: string }[] = []
   const now = new Date()
 
   for (const show of shows) {
@@ -39,6 +40,8 @@ export async function GET(req: NextRequest) {
       let episodeTitle: string | null = null
       let newTotalEpisodes: number | null = null
       let forceCompleted = false
+      // Default to now; Bilibili overrides with actual pub_time
+      let episodePublishedAt: Date = now
 
       if (show.platform === 'BILIBILI') {
         // Extract season_id from the platformUrl (e.g. .../bangumi/play/ss26257 → "26257")
@@ -51,6 +54,10 @@ export async function GET(req: NextRequest) {
           if (!isNaN(epNum)) {
             latestEpisode = epNum
             episodeTitle = info.episode.long_title || null
+            // Use the real air date from Bilibili's API (Unix timestamp → Date)
+            if (info.episode.pub_time > 0) {
+              episodePublishedAt = new Date(info.episode.pub_time * 1000)
+            }
           }
           if (info.season.is_finish === 1) forceCompleted = true
         }
@@ -75,6 +82,23 @@ export async function GET(req: NextRequest) {
             console.log(`[cron/shows] fixed Tencent URL for ${show.title}: ${info.coverUrl}`)
           }
         }
+
+        // Extra fallback for Tencent: direct iQiyi aggregated search with wider net.
+        // getTencentLatestEpisode uses limit=20 internally; retry with 50 + platformId match.
+        if (latestEpisode === null) {
+          const iqResults = await searchIqiyiShows(show.title, 50).catch(() => [])
+          const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '')
+          const match = iqResults.find(
+            (r) =>
+              r.platform === 'TENCENT' &&
+              (r.platformId === show.platformId || norm(r.title) === norm(show.title)),
+          )
+          if (match?.latestEpisode) {
+            latestEpisode = match.latestEpisode
+            newTotalEpisodes = match.totalEpisodes ?? newTotalEpisodes
+            console.log(`[cron/shows] Tencent fallback found ${show.title} → ep ${latestEpisode}`)
+          }
+        }
       } else if (show.platform === 'YOUKU') {
         const info = await getYoukuLatestEpisode(show.platformUrl, show.title, show.platformId)
         if (info) {
@@ -93,7 +117,6 @@ export async function GET(req: NextRequest) {
       }
 
       // ── Determine new status ────────────────────────────────────────────────
-      // Priority: explicit forceCompleted > episode-count comparison > episode presence
       const effectiveTotal = newTotalEpisodes ?? show.totalEpisodes
       let newStatus: 'AIRING' | 'COMPLETED' | 'UPCOMING' =
         show.status as 'AIRING' | 'COMPLETED' | 'UPCOMING'
@@ -101,9 +124,7 @@ export async function GET(req: NextRequest) {
       if (forceCompleted) {
         newStatus = 'COMPLETED'
       } else if (latestEpisode !== null && latestEpisode > 0) {
-        // Has at least one episode → definitely airing (not upcoming)
         newStatus = 'AIRING'
-        // All episodes released → completed
         if (effectiveTotal !== null && latestEpisode >= effectiveTotal) {
           newStatus = 'COMPLETED'
         }
@@ -111,10 +132,11 @@ export async function GET(req: NextRequest) {
 
       // Use freshly scraped value, or fall back to what's already stored in the DB
       const effectiveEpisode = latestEpisode ?? show.latestEpisode
+      const episodeToRecord = effectiveEpisode  // may be null if we have no data at all
       const episodeAdvanced = latestEpisode !== null && latestEpisode > (show.latestEpisode ?? 0)
       const statusChanged = newStatus !== show.status
 
-      // Build update payload
+      // Build show update payload
       const updateData: {
         lastChecked: Date
         latestEpisode?: number
@@ -131,43 +153,78 @@ export async function GET(req: NextRequest) {
         console.log(`[cron/shows] ${show.title} status ${show.status} → ${newStatus}`)
       }
 
-      // Create ShowUpdate if: (a) episode advanced, OR (b) first-track seed
-      // For (b): show has no ShowUpdate yet — seed from stored latestEpisode even if
-      // today's scrape failed (e.g., platform geo-blocked Vercel US servers)
-      const existingUpdateCount = await prisma.showUpdate.count({ where: { showId: show.id } })
-      const isFirstTrack = existingUpdateCount === 0 && effectiveEpisode !== null && effectiveEpisode > 0
-
-      if (episodeAdvanced || isFirstTrack) {
-        const episodeToRecord = (latestEpisode ?? effectiveEpisode)!
-        await prisma.showUpdate.create({
-          data: {
-            showId: show.id,
-            episode: episodeToRecord,
-            title: episodeTitle,
-            publishedAt: now,
-          },
+      // ── ShowUpdate: create new or correct the date of an existing one ───────
+      if (episodeToRecord !== null && episodeToRecord > 0) {
+        // Look up existing ShowUpdate for this exact episode
+        const existing = await prisma.showUpdate.findFirst({
+          where: { showId: show.id, episode: episodeToRecord },
+          select: { id: true, publishedAt: true, title: true },
         })
-        results.push({ title: show.title, newEpisode: episodeToRecord })
-        console.log(
-          `[cron/shows] ${show.title} → ep ${episodeToRecord} (${isFirstTrack ? 'first-track seed' : 'new episode'})`,
-        )
 
-        // Only send push/WeChat notifications for genuine new episodes (not first-track seeds)
-        if (episodeAdvanced && newStatus !== 'COMPLETED') {
-          await Promise.allSettled([
-            sendPushToSubscribers(show.id, undefined, {
-              title: `${show.title} 更新了！`,
-              body: `第 ${episodeToRecord} 集已上线${episodeTitle ? `：${episodeTitle}` : ''}`,
-              icon: show.coverImage ?? undefined,
-              url: show.platformUrl,
-            }),
-            sendWeChatToSubscribers(show.id, {
-              showTitle: show.title,
+        if (existing) {
+          // Date correction: if we have a better (earlier) date, update it.
+          // 3600s threshold avoids touching records that are already accurate.
+          const betterDate = episodePublishedAt < existing.publishedAt &&
+            existing.publishedAt.getTime() - episodePublishedAt.getTime() > 3_600_000
+          if (betterDate) {
+            await prisma.showUpdate.update({
+              where: { id: existing.id },
+              data: {
+                publishedAt: episodePublishedAt,
+                title: episodeTitle ?? existing.title,
+              },
+            })
+            results.push({ title: show.title, newEpisode: episodeToRecord, action: 'date-corrected' })
+            console.log(
+              `[cron/shows] ${show.title} ep${episodeToRecord} date corrected → ${episodePublishedAt.toISOString()}`,
+            )
+          }
+        } else if (episodeAdvanced) {
+          // New episode! Create ShowUpdate + send notifications
+          await prisma.showUpdate.create({
+            data: {
+              showId: show.id,
               episode: episodeToRecord,
-              episodeTitle,
-              showUrl: show.platformUrl,
-            }),
-          ])
+              title: episodeTitle,
+              publishedAt: episodePublishedAt,
+            },
+          })
+          results.push({ title: show.title, newEpisode: episodeToRecord, action: 'new-episode' })
+          console.log(`[cron/shows] ${show.title} → ep ${episodeToRecord} (new) @ ${episodePublishedAt.toISOString()}`)
+
+          if (newStatus !== 'COMPLETED') {
+            await Promise.allSettled([
+              sendPushToSubscribers(show.id, undefined, {
+                title: `${show.title} 更新了！`,
+                body: `第 ${episodeToRecord} 集已上线${episodeTitle ? `：${episodeTitle}` : ''}`,
+                icon: show.coverImage ?? undefined,
+                url: show.platformUrl,
+              }),
+              sendWeChatToSubscribers(show.id, {
+                showTitle: show.title,
+                episode: episodeToRecord,
+                episodeTitle,
+                showUrl: show.platformUrl,
+              }),
+            ])
+          }
+        } else {
+          // Not a new episode — seed first-track ShowUpdate if none exists yet for this show
+          const anyCount = await prisma.showUpdate.count({ where: { showId: show.id } })
+          if (anyCount === 0) {
+            await prisma.showUpdate.create({
+              data: {
+                showId: show.id,
+                episode: episodeToRecord,
+                title: episodeTitle,
+                publishedAt: episodePublishedAt,
+              },
+            })
+            results.push({ title: show.title, newEpisode: episodeToRecord, action: 'first-track-seed' })
+            console.log(
+              `[cron/shows] ${show.title} first-track seed ep${episodeToRecord} @ ${episodePublishedAt.toISOString()}`,
+            )
+          }
         }
       }
 
