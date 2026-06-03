@@ -1,0 +1,12 @@
+{
+  "name": "follow-hk-proxy",
+  "version": "1.0.0",
+  "description": "HK fetch proxy for follow app — bypasses geo-restrictions on Chinese platforms",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

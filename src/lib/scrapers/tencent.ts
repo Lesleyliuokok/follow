@@ -1,12 +1,14 @@
 /**
  * Tencent Video show tracker.
  *
- * Strategy 0: node.video.qq.com JSON CDN API — not geo-restricted (used by mobile apps)
- * Strategy 1: v.qq.com cover page HTML scrape — geo-blocked on Vercel US
+ * Strategy 0: v.qq.com cover page HTML scrape via HK proxy (when HK_PROXY_URL is set)
+ *             — real-time, accurate, previously geo-blocked on Vercel US
+ * Strategy 1: WeTV (wetv.vip) — Tencent's international platform, accessible from US
+ *             — used as fallback when HK proxy is unavailable
  * Strategy 2: iQiyi aggregated search fallback — works from US but data may be stale
- *             for Tencent competitor shows (iQiyi updates competitor data infrequently)
  */
 import axios from 'axios'
+import { proxyFetch } from '@/lib/proxy-fetch'
 import { searchIqiyiShows } from '@/lib/scraper/iqiyi'
 import { getWetvEpisodeInfo } from '@/lib/scrapers/wetv'
 
@@ -19,10 +21,6 @@ const http = axios.create({
     Referer: 'https://v.qq.com/',
   },
 })
-
-// NOTE on Tencent direct APIs: vlist/ep_list/channel/home all 404 from US
-// servers; float_vinfo2 is reachable but has no episode count field; the
-// cover-page HTML is geo-blocked. Strategy 0 uses WeTV instead.
 
 export interface TencentEpisodeInfo {
   latestEpisode: number
@@ -52,7 +50,17 @@ async function scrapeFromCoverPage(coverId: string): Promise<{
   firstActor: string | null
 } | null> {
   try {
-    const { data } = await http.get(`https://v.qq.com/x/cover/${coverId}.html`)
+    const coverUrl = `https://v.qq.com/x/cover/${coverId}.html`
+    const TENCENT_HEADERS = {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      Referer: 'https://v.qq.com/',
+    }
+    // Use HK proxy when available — the cover page is geo-blocked from US servers
+    const rawHtml = process.env.HK_PROXY_URL
+      ? await proxyFetch(coverUrl, { headers: TENCENT_HEADERS }).then((r) => r.text())
+      : await http.get(coverUrl).then((r) => r.data as string)
+    const data = rawHtml
     const html = data as string
 
     // Total episodes — dramas use 集, variety shows use 期
@@ -120,8 +128,16 @@ export async function getTencentLatestEpisode(
     ? `https://v.qq.com/x/cover/${coverId}.html`
     : platformUrl
 
-  // ── Strategy 0: WeTV (wetv.vip) — Tencent's international platform ───────
-  // WeTV is accessible from US servers. Pages display "To EP N / All M EPs".
+  // ── Strategy 0: cover page scrape via HK proxy (real-time, most accurate) ─
+  // When HK_PROXY_URL is set the request is routed through Hong Kong, bypassing
+  // the geo-block on Vercel US servers.
+  const scraped = coverId ? await scrapeFromCoverPage(coverId) : null
+  if (scraped?.episodes) {
+    return { ...scraped.episodes, coverUrl, updatedAt: new Date() }
+  }
+
+  // ── Strategy 1: WeTV (wetv.vip) — fallback when HK proxy unavailable ─────
+  // WeTV is Tencent's international platform, accessible from US servers.
   const wetv = await getWetvEpisodeInfo(title)
   if (wetv) {
     return {
@@ -131,12 +147,6 @@ export async function getTencentLatestEpisode(
       coverUrl,
       updatedAt: new Date(),
     }
-  }
-
-  // ── Strategy 1: cover page scrape (real-time, geo-blocked on Vercel US) ──
-  const scraped = coverId ? await scrapeFromCoverPage(coverId) : null
-  if (scraped?.episodes) {
-    return { ...scraped.episodes, coverUrl, updatedAt: new Date() }
   }
 
   // ── Strategy 2: iQiyi aggregated search API (fallback) ──────────────────

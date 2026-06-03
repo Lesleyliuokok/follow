@@ -1,9 +1,12 @@
 /**
- * Bilibili search via the Android mobile API — no cookies or wbi signature required,
- * and uses a direct undici Agent to bypass the global VPN proxy dispatcher
- * (the VPN IP gets 412-blocked by Bilibili's web API; direct China IP works fine).
+ * Bilibili search via the Android mobile API.
+ *
+ * Requests are routed through the HK proxy (HK_PROXY_URL env var) when available,
+ * so geo-restricted PGC content (e.g. licensed foreign dramas) is returned correctly.
+ * Falls back to direct fetch in local dev when no proxy is configured.
  */
 import { Agent, fetch as undiciFetch } from 'undici'
+import { proxyFetch } from '@/lib/proxy-fetch'
 
 const directAgent = new Agent()
 
@@ -62,10 +65,11 @@ export async function searchBilibiliShows(keyword: string): Promise<BiliShow[]> 
     `?keyword=${encodeURIComponent(keyword)}&mobi_app=android&build=6270200&page=1`
 
   try {
-    const res = await undiciFetch(url, {
-      dispatcher: directAgent,
-      headers: MOBILE_HEADERS,
-    })
+    // Route through HK proxy when available — HK IP bypasses geo-filtering of licensed PGC.
+    // In local dev without proxy, fall back to direct undici (bypasses local VPN).
+    const res = process.env.HK_PROXY_URL
+      ? await proxyFetch(url, { headers: MOBILE_HEADERS as Record<string, string> })
+      : await undiciFetch(url, { dispatcher: directAgent, headers: MOBILE_HEADERS })
     if (!res.ok) return []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json = (await res.json()) as any
