@@ -3,23 +3,24 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Tv, User, Search, X, Loader2 } from 'lucide-react'
+import { Tv, Search, X, Loader2 } from 'lucide-react'
 import { imgSrc } from '@/lib/img'
 import { PLATFORM_LABELS, SOCIAL_PLATFORM_LABELS } from '@/types'
 
 interface ShowSub {
-  id: string // subscription id
+  id: string
   show: {
     id: string
     title: string
     platform: string
     status: string
     coverImage: string | null
+    latestEpisode: number | null
   }
 }
 
 interface CelebSub {
-  id: string // subscription id
+  id: string
   celebrity: {
     id: string
     name: string
@@ -42,8 +43,9 @@ export default function SubscriptionsPage() {
       .catch(() => setLoading(false))
   }, [])
 
-  async function unsubscribe(sub: Sub) {
-    const isShow = 'show' in sub && sub.show
+  async function unsubscribe(sub: Sub, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
     const key = sub.id
     setRemoving((prev) => new Set(prev).add(key))
     try {
@@ -51,7 +53,7 @@ export default function SubscriptionsPage() {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          isShow
+          'show' in sub && sub.show
             ? { showId: (sub as ShowSub).show.id }
             : { celebrityId: (sub as CelebSub).celebrity.id },
         ),
@@ -67,7 +69,7 @@ export default function SubscriptionsPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-16 flex justify-center">
+      <div className="max-w-6xl mx-auto px-6 py-16 flex justify-center">
         <Loader2 size={24} className="animate-spin text-gray-300" />
       </div>
     )
@@ -75,7 +77,7 @@ export default function SubscriptionsPage() {
 
   if (subs.length === 0) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
         <h1 className="text-lg font-semibold text-gray-900 mb-8">我的追踪</h1>
         <div className="text-center py-20">
           <div className="text-6xl mb-6">🔖</div>
@@ -94,7 +96,7 @@ export default function SubscriptionsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
+    <div className="max-w-6xl mx-auto px-6 py-8">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-lg font-semibold text-gray-900">我的追踪</h1>
         <span className="text-sm text-gray-400">共 {subs.length} 个</span>
@@ -103,55 +105,60 @@ export default function SubscriptionsPage() {
       {/* ── 剧集 / 综艺 ──────────────────────────────────────────────────── */}
       {showSubs.length > 0 && (
         <section className="mb-10">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
-            剧集 / 综艺 · {showSubs.length}
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+            追剧 / 追综 · {showSubs.length}
           </h2>
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {showSubs.map((sub) => {
               const { show } = sub
               return (
-                <div
-                  key={sub.id}
-                  className="flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-4 py-3 hover:border-gray-200 transition-all"
-                >
-                  {/* Cover thumbnail */}
-                  <Link href={`/shows/${show.id}`} className="shrink-0">
-                    <div className="relative w-10 h-14 rounded-lg overflow-hidden bg-gray-100">
+                <div key={sub.id} className="relative group">
+                  <Link
+                    href={`/shows/${show.id}`}
+                    className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:border-gray-200 hover:shadow-sm transition-all"
+                  >
+                    <div className="relative w-full aspect-[2/3] bg-gray-100">
                       {show.coverImage ? (
-                        <Image src={imgSrc(show.coverImage)!} alt={show.title} fill className="object-cover" unoptimized />
+                        <Image
+                          src={imgSrc(show.coverImage)!}
+                          alt={show.title}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
                       ) : (
                         <div className="flex items-center justify-center h-full">
-                          <Tv size={16} className="text-gray-300" />
+                          <Tv size={28} className="text-gray-300" />
                         </div>
                       )}
+                      <div className={`absolute top-2 right-2 text-xs font-medium px-2 py-0.5 rounded-full ${
+                        show.status === 'AIRING' ? 'bg-green-500 text-white'
+                        : show.status === 'COMPLETED' ? 'bg-gray-500 text-white'
+                        : 'bg-yellow-500 text-white'
+                      }`}>
+                        {show.status === 'AIRING' ? '更新中' : show.status === 'COMPLETED' ? '完结' : '未播'}
+                      </div>
+                    </div>
+                    <div className="p-3">
+                      <p className="font-medium text-gray-900 text-sm line-clamp-2 leading-snug">
+                        {show.title}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {PLATFORM_LABELS[show.platform as keyof typeof PLATFORM_LABELS] ?? show.platform}
+                        {show.latestEpisode ? ` · 第 ${show.latestEpisode} 集` : ''}
+                      </p>
                     </div>
                   </Link>
-
-                  {/* Info */}
-                  <Link href={`/shows/${show.id}`} className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{show.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {PLATFORM_LABELS[show.platform as keyof typeof PLATFORM_LABELS] ?? show.platform}
-                      <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        show.status === 'AIRING' ? 'bg-green-100 text-green-700'
-                        : show.status === 'COMPLETED' ? 'bg-gray-100 text-gray-500'
-                        : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {show.status === 'AIRING' ? '更新中' : show.status === 'COMPLETED' ? '已完结' : '未播出'}
-                      </span>
-                    </p>
-                  </Link>
-
-                  {/* Remove */}
+                  {/* Remove button */}
                   <button
-                    onClick={() => unsubscribe(sub)}
+                    onClick={(e) => unsubscribe(sub, e)}
                     disabled={removing.has(sub.id)}
-                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center bg-black/50 hover:bg-black/70 text-white rounded-full transition-all disabled:opacity-40"
                     title="取消追踪"
                   >
                     {removing.has(sub.id)
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <X size={14} />}
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <X size={11} />}
                   </button>
                 </div>
               )
@@ -163,51 +170,51 @@ export default function SubscriptionsPage() {
       {/* ── 艺人 ─────────────────────────────────────────────────────────── */}
       {celebSubs.length > 0 && (
         <section>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
-            艺人 · {celebSubs.length}
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
+            追艺人 · {celebSubs.length}
           </h2>
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
             {celebSubs.map((sub) => {
               const { celebrity } = sub
               return (
-                <div
-                  key={sub.id}
-                  className="flex items-center gap-4 bg-white border border-gray-100 rounded-xl px-4 py-3 hover:border-gray-200 transition-all"
-                >
-                  {/* Avatar */}
-                  <Link href={`/celebrities/${celebrity.id}`} className="shrink-0">
-                    <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-100">
+                <div key={sub.id} className="relative group">
+                  <Link
+                    href={`/celebrities/${celebrity.id}`}
+                    className="block bg-white rounded-xl border border-gray-100 p-4 text-center hover:border-gray-200 hover:shadow-sm transition-all"
+                  >
+                    <div className="relative w-16 h-16 rounded-full overflow-hidden bg-gray-100 mx-auto mb-3">
                       {celebrity.avatar ? (
-                        <Image src={imgSrc(celebrity.avatar)!} alt={celebrity.name} fill className="object-cover" unoptimized />
+                        <Image
+                          src={imgSrc(celebrity.avatar)!}
+                          alt={celebrity.name}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
                       ) : (
-                        <div className="flex items-center justify-center h-full text-sm font-bold text-gray-300">
-                          <User size={16} className="text-gray-300" />
+                        <div className="flex items-center justify-center h-full text-xl font-bold text-gray-300">
+                          {celebrity.name[0]}
                         </div>
                       )}
                     </div>
-                  </Link>
-
-                  {/* Info */}
-                  <Link href={`/celebrities/${celebrity.id}`} className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 text-sm">{celebrity.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-gray-400 mt-1">
                       {celebrity.platforms
                         .map((p) => SOCIAL_PLATFORM_LABELS[p.platform as keyof typeof SOCIAL_PLATFORM_LABELS])
                         .filter(Boolean)
                         .join(' · ') || '暂无平台'}
                     </p>
                   </Link>
-
-                  {/* Remove */}
+                  {/* Remove button */}
                   <button
-                    onClick={() => unsubscribe(sub)}
+                    onClick={(e) => unsubscribe(sub, e)}
                     disabled={removing.has(sub.id)}
-                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center bg-black/50 hover:bg-black/70 text-white rounded-full transition-all disabled:opacity-40"
                     title="取消追踪"
                   >
                     {removing.has(sub.id)
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <X size={14} />}
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <X size={11} />}
                   </button>
                 </div>
               )
@@ -215,17 +222,6 @@ export default function SubscriptionsPage() {
           </div>
         </section>
       )}
-
-      {/* ── 底部操作 ─────────────────────────────────────────────────────── */}
-      <div className="mt-10 pt-6 border-t border-gray-100 flex justify-center">
-        <Link
-          href="/search"
-          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-        >
-          <Search size={15} />
-          添加追踪
-        </Link>
-      </div>
     </div>
   )
 }
