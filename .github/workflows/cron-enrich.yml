@@ -1,0 +1,23 @@
+name: Cron — Enrich Platform Links
+
+on:
+  schedule:
+    # Run once per day at 04:00 UTC (noon Beijing time)
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}   # allow manual trigger from GitHub Actions UI
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/cron/enrich
+        run: |
+          STATUS=$(curl -s -o /tmp/enrich_response.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/enrich")
+          echo "HTTP status: $STATUS"
+          cat /tmp/enrich_response.json
+          if [ "$STATUS" != "200" ]; then
+            echo "Enrich cron failed with status $STATUS"
+            exit 1
+          fi

@@ -51,6 +51,11 @@ function latestEpFromList(episodes: any[]): number | null {
   return nums.length > 0 ? Math.max(...nums) : null
 }
 
+/** Strip HTML tags that Bilibili search sometimes injects for keyword highlighting */
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]+>/g, '').trim()
+}
+
 export async function searchBilibiliShows(keyword: string): Promise<BiliShow[]> {
   const url =
     `https://app.bilibili.com/x/v2/search` +
@@ -70,15 +75,17 @@ export async function searchBilibiliShows(keyword: string): Promise<BiliShow[]> 
     const items: any[] = Array.isArray(json.data?.item) ? json.data.item : []
 
     return items
-      .filter((it) => it.goto === 'bangumi')
-      .slice(0, 8)
+      // bangumi = Japanese anime / Chinese animation
+      // ogv     = licensed foreign & domestic live-action drama (e.g. British dramas, K-dramas)
+      .filter((it) => it.goto === 'bangumi' || it.goto === 'ogv')
+      .slice(0, 10)
       .map((it): BiliShow => {
-        const seasonId = String(it.season_id ?? '')
+        const seasonId = String(it.season_id ?? it.param ?? '')
         const latestEpisode = latestEpFromList(it.episodes_new)
         return {
-          platformId: String(it.param),
+          platformId: String(it.param ?? it.season_id ?? ''),
           seasonId,
-          title: it.title ?? '',
+          title: stripHtml(it.title ?? ''),
           coverImage: it.cover ?? null,
           platformUrl: seasonId
             ? `https://www.bilibili.com/bangumi/play/ss${seasonId}`
@@ -87,6 +94,7 @@ export async function searchBilibiliShows(keyword: string): Promise<BiliShow[]> 
           status: 'AIRING',  // mobile API doesn't expose is_finish; update later via cron
         }
       })
+      .filter((it) => it.platformId && it.seasonId)  // skip malformed entries
   } catch {
     return []
   }
