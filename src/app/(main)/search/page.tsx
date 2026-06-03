@@ -36,7 +36,7 @@ function ItemCard({
   status?: string
   subscribed: boolean
   toggling?: boolean
-  onToggle: (id: string) => void
+  onToggle: (id: string, title: string, image?: string) => void
 }) {
   const detailHref = mode === 'shows' ? `/shows/${id}` : `/celebrities/${id}`
   return (
@@ -77,7 +77,7 @@ function ItemCard({
         </Link>
         {meta && <p className="text-xs text-gray-400 mb-2">{meta}</p>}
         <button
-          onClick={() => onToggle(id)}
+          onClick={() => onToggle(id, title, image)}
           disabled={toggling}
           className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-60 ${
             subscribed
@@ -277,7 +277,9 @@ export default function DiscoverPage() {
 
   // ── Subscribe helpers ─────────────────────────────────────────────────────
 
-  async function toggleSubscribe(id: string) {
+  // name/avatar are passed directly from the card — never looked up from results[]
+  // so they stay valid even if results is stale or cleared between render and click.
+  async function toggleSubscribe(id: string, nameFromCard?: string, avatarFromCard?: string) {
     if (toggling.has(id)) return
     setToggling((prev) => new Set(prev).add(id))
     try {
@@ -286,12 +288,7 @@ export default function DiscoverPage() {
       if (mode === 'shows') {
         body = { showId: id }
       } else {
-        // Pass name + avatar as fallback so the server can auto-create if ID lookup fails
-        // (Neon free tier occasionally has a brief lag between create and visibility)
-        const celeb = results.find((r) => (r as { id: string }).id === id) as
-          | { id: string; name?: string; avatar?: string }
-          | undefined
-        body = { celebrityId: id, name: celeb?.name, avatar: celeb?.avatar }
+        body = { celebrityId: id, name: nameFromCard, avatar: avatarFromCard }
       }
       const res = await fetch('/api/subscriptions', {
         method: isSub ? 'DELETE' : 'POST',
@@ -314,7 +311,7 @@ export default function DiscoverPage() {
     }
   }
 
-  async function toggleSubscribeTyped(id: string, type: SearchMode) {
+  async function toggleSubscribeTyped(id: string, type: SearchMode, nameFromCard?: string, avatarFromCard?: string) {
     if (toggling.has(id)) return
     setToggling((prev) => new Set(prev).add(id))
     try {
@@ -323,10 +320,7 @@ export default function DiscoverPage() {
       if (type === 'shows') {
         body = { showId: id }
       } else {
-        const celeb = discoverCelebs.find((r) => (r as { id: string }).id === id) as
-          | { id: string; name?: string; avatar?: string }
-          | undefined
-        body = { celebrityId: id, name: celeb?.name, avatar: celeb?.avatar }
+        body = { celebrityId: id, name: nameFromCard, avatar: avatarFromCard }
       }
       const res = await fetch('/api/subscriptions', {
         method: isSub ? 'DELETE' : 'POST',
@@ -472,6 +466,17 @@ export default function DiscoverPage() {
                 onClick={() => {
                   setMode(m)
                   setResults([])
+                  // Re-run search immediately with the new mode (avoids stale-results race)
+                  if (query.trim()) {
+                    setLoading(true)
+                    const url = m === 'shows'
+                      ? `/api/shows?q=${encodeURIComponent(query)}`
+                      : `/api/celebrities?q=${encodeURIComponent(query)}`
+                    fetch(url, { cache: 'no-store' })
+                      .then((r) => r.json())
+                      .then((data) => { setResults(data); setLoading(false) })
+                      .catch(() => setLoading(false))
+                  }
                 }}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   mode === m
@@ -505,7 +510,7 @@ export default function DiscoverPage() {
                     status={mode === 'shows' ? (item.status as string) : undefined}
                     subscribed={subscribed.has(id)}
                     toggling={toggling.has(id)}
-                    onToggle={(id) => toggleSubscribe(id)}
+                    onToggle={(id, title, image) => toggleSubscribe(id, title, image)}
                   />
                 )
               })}
@@ -574,7 +579,7 @@ export default function DiscoverPage() {
                       meta={celebMeta(item)}
                       subscribed={subscribed.has(id)}
                       toggling={toggling.has(id)}
-                      onToggle={(id) => toggleSubscribeTyped(id, 'celebrities')}
+                      onToggle={(id, name, avatar) => toggleSubscribeTyped(id, 'celebrities', name, avatar)}
                     />
                   )
                 })}
