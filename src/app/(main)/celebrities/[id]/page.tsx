@@ -6,10 +6,8 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, Plus, Loader2, User, Check,
-  ExternalLink, ChevronDown, ChevronUp,
+  ExternalLink,
 } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
 import { SOCIAL_PLATFORM_LABELS } from '@/types'
 import type { SocialPlatform } from '@prisma/client'
 import { imgSrc } from '@/lib/img'
@@ -23,16 +21,6 @@ interface Platform {
   profileUrl: string
   username: string | null
   lastChecked: string | null
-}
-
-interface Post {
-  id: string
-  platformPostId: string
-  content: string | null
-  mediaUrls: string[]
-  postUrl: string
-  publishedAt: string
-  celebrityPlatform: { platform: SocialPlatform }
 }
 
 interface Celebrity {
@@ -166,85 +154,21 @@ function AddPlatformModal({
   )
 }
 
-// ── Post card ─────────────────────────────────────────────────────────────
-
-function PostCard({ post }: { post: Post }) {
-  const [expanded, setExpanded] = useState(false)
-  const content = post.content ?? ''
-  const isLong = content.length > 120
-  const timeAgo = formatDistanceToNow(new Date(post.publishedAt), { addSuffix: true, locale: zhCN })
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 hover:border-gray-200 hover:shadow-sm transition-all">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${BADGE[post.celebrityPlatform.platform]}`}>
-            {SOCIAL_PLATFORM_LABELS[post.celebrityPlatform.platform]}
-          </span>
-          <span className="text-xs text-gray-400">{timeAgo}</span>
-        </div>
-        <a
-          href={post.postUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          <ExternalLink size={11} />
-          原文
-        </a>
-      </div>
-
-      {content && (
-        <div>
-          <p className={`text-sm text-gray-700 leading-relaxed whitespace-pre-line ${!expanded && isLong ? 'line-clamp-4' : ''}`}>
-            {content}
-          </p>
-          {isLong && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className="flex items-center gap-1 mt-1.5 text-xs text-blue-500 hover:text-blue-600 font-medium"
-            >
-              {expanded ? <><ChevronUp size={12} />收起</> : <><ChevronDown size={12} />展开</>}
-            </button>
-          )}
-        </div>
-      )}
-
-      {post.mediaUrls.length > 0 && (
-        <div className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-          post.mediaUrls.length === 1 ? 'grid-cols-1' :
-          post.mediaUrls.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
-        }`}>
-          {post.mediaUrls.slice(0, 9).map((url, i) => (
-            <div key={i} className="relative aspect-square bg-gray-100">
-              <Image src={url} alt="" fill className="object-cover" unoptimized />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export default function CelebrityPage() {
   const { id } = useParams<{ id: string }>()
 
   const [celebrity, setCelebrity] = useState<Celebrity | null>(null)
-  const [posts, setPosts] = useState<Post[]>([])
   const [isFollowed, setIsFollowed] = useState(false)
   const [followLoading, setFollowLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [fetching, setFetching] = useState(false)
-  const [fetchResult, setFetchResult] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [celebRes, subsRes, postsRes] = await Promise.all([
+    const [celebRes, subsRes] = await Promise.all([
       fetch(`/api/celebrities/${id}`),
       fetch('/api/subscriptions'),
-      fetch(`/api/celebrities/${id}/posts`),
     ])
 
     if (!celebRes.ok) {
@@ -254,15 +178,12 @@ export default function CelebrityPage() {
     }
 
     const celeb = await celebRes.json() as Celebrity
-    // Ensure platforms is always an array even if API response is unexpected
     if (!Array.isArray(celeb.platforms)) celeb.platforms = []
 
     const subs: { celebrityId?: string }[] = await subsRes.json().catch(() => [])
-    const postsData: Post[] = await postsRes.json().catch(() => [])
 
     setCelebrity(celeb)
     setIsFollowed(subs.some((s) => s.celebrityId === id))
-    setPosts(postsData)
     setLoading(false)
   }, [id])
 
@@ -398,54 +319,6 @@ export default function CelebrityPage() {
           </button>
         </div>
       </div>
-
-      {/* Posts feed */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">
-          近期动态 · {posts.length}
-        </h2>
-        {posts.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-3xl mb-3">📭</p>
-            <p className="font-medium text-gray-600">暂无动态记录</p>
-            <p className="text-sm mt-1">
-              {existingPlatforms.length === 0
-                ? '先添加平台账号，再手动触发抓取'
-                : '可手动触发一次抓取来载入历史动态'}
-            </p>
-            <button
-              disabled={fetching}
-              onClick={async () => {
-                setFetching(true)
-                setFetchResult(null)
-                const res = await fetch(`/api/celebrities/${id}/fetch`, { method: 'POST' })
-                const json = await res.json().catch(() => ({}))
-                setFetching(false)
-                if (res.ok) {
-                  const n = (json as { newPosts?: number }).newPosts ?? 0
-                  setFetchResult(n > 0 ? `✓ 抓取到 ${n} 条新动态` : '未发现新动态（账号可能被封或暂无内容）')
-                  if (n > 0) load()
-                } else {
-                  setFetchResult('抓取失败，请检查账号是否有效')
-                }
-              }}
-              className="mt-4 px-4 py-2 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-700 transition-colors disabled:opacity-50 flex items-center gap-2 mx-auto"
-            >
-              {fetching ? <Loader2 size={14} className="animate-spin" /> : null}
-              {fetching ? '抓取中…' : '立即抓取'}
-            </button>
-            {fetchResult && (
-              <p className="mt-2 text-xs text-gray-500">{fetchResult}</p>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {posts.map((p) => (
-              <PostCard key={p.id} post={p} />
-            ))}
-          </div>
-        )}
-      </section>
 
       {/* Add Platform Modal */}
       {showModal && (
