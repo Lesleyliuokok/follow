@@ -10,8 +10,9 @@
  *   hdslb.com      — Bilibili CDN (bangumi covers, avatars)
  *   iqiyipic.com   — iQiyi poster CDN
  *   qpic.cn        — Tencent / WeChat CDN
+ *   sinaimg.cn     — Weibo avatar / image CDN (hotlink-protected, needs Referer)
  */
-const PROXY_DOMAINS = ['doubanio.com', 'hdslb.com', 'iqiyipic.com', 'qpic.cn']
+const PROXY_DOMAINS = ['doubanio.com', 'hdslb.com', 'iqiyipic.com', 'qpic.cn', 'sinaimg.cn']
 
 export function imgSrc(url: string | null | undefined): string | null {
   if (!url) return null

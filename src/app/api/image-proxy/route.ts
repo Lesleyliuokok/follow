@@ -10,6 +10,7 @@ const ALLOWED: Record<string, string> = {
   'iqiyipic.com':   'https://www.iqiyi.com',
   'qpic.cn':        'https://v.qq.com',            // Tencent Video CDN
   'puui.qpic.cn':   'https://v.qq.com',
+  'sinaimg.cn':     'https://weibo.com',           // Weibo avatar CDN
 }
 
 // Only proxy images from trusted domains
