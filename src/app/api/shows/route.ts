@@ -204,26 +204,85 @@ export async function GET(req: NextRequest) {
     }),
   )
 
-  // ── Merge & deduplicate ──────────────────────────────────────────────────
-  const localIds = new Set(localShows.map((s) => s.id))
+  // ── Merge & deduplicate with multi-platform support ─────────────────────
+  // Same title on different platforms → merged into one card via extraPlatforms
+  // Same title on same platform → true duplicate, dropped
+  type ExtraEntry = { platform: string; platformUrl: string; id: string }
+  type ShowEntry = Omit<(typeof localShows)[0], 'extraPlatforms'> & { extraPlatforms: ExtraEntry[] }
+
   const seenIds = new Set(localShows.map((s) => s.id))
-  // Normalize titles by removing spaces for dedup (handles "庆余年第二季" vs "庆余年 第二季")
-  const seenTitles = new Set(localShows.map((s) => s.title.toLowerCase().replace(/\s+/g, '')))
+  const titleToPrimary = new Map<string, ShowEntry>()
+  const result: ShowEntry[] = []
 
-  const newShows = [...biliUpserted, ...iqiyiUpserted, ...doubanUpserted].filter(
-    (s): s is NonNullable<typeof s> => {
-      if (!s) return false
-      if (localIds.has(s.id)) return false  // already in localShows
-      if (seenIds.has(s.id)) return false
-      const normalizedTitle = s.title.toLowerCase().replace(/\s+/g, '')
-      if (seenTitles.has(normalizedTitle)) return false
-      seenIds.add(s.id)
-      seenTitles.add(normalizedTitle)
-      return true
-    },
-  )
+  // Seed with local DB shows
+  for (const s of localShows) {
+    const nt = s.title.toLowerCase().replace(/\s+/g, '')
+    if (!titleToPrimary.has(nt)) {
+      const entry: ShowEntry = {
+        ...s,
+        extraPlatforms: Array.isArray(s.extraPlatforms)
+          ? (s.extraPlatforms as ExtraEntry[])
+          : [],
+      }
+      titleToPrimary.set(nt, entry)
+      result.push(entry)
+    } else {
+      // Same title exists on another platform in localShows — merge it in
+      const primary = titleToPrimary.get(nt)!
+      if (primary.platform !== s.platform && !primary.extraPlatforms.some((e) => e.platform === s.platform)) {
+        primary.extraPlatforms = [
+          ...primary.extraPlatforms,
+          { platform: s.platform, platformUrl: s.platformUrl, id: s.id },
+        ]
+      }
+    }
+  }
 
-  return NextResponse.json([...localShows, ...newShows].slice(0, 20), { headers: NO_CACHE })
+  // Process newly upserted shows — merge cross-platform siblings
+  const dbUpdates: Promise<unknown>[] = []
+
+  for (const s of [...biliUpserted, ...iqiyiUpserted, ...doubanUpserted]) {
+    if (!s || seenIds.has(s.id)) continue
+    seenIds.add(s.id)
+    const nt = s.title.toLowerCase().replace(/\s+/g, '')
+
+    if (titleToPrimary.has(nt)) {
+      const primary = titleToPrimary.get(nt)!
+      if (primary.platform !== s.platform) {
+        // Same title, different platform → merge as extra
+        if (!primary.extraPlatforms.some((e) => e.platform === s.platform)) {
+          primary.extraPlatforms = [
+            ...primary.extraPlatforms,
+            { platform: s.platform, platformUrl: s.platformUrl, id: s.id },
+          ]
+          // Persist the extra platform to DB in the background
+          dbUpdates.push(
+            prisma.show.update({
+              where: { id: primary.id },
+              // Cast to satisfy Prisma's Json type expectation
+              data: { extraPlatforms: primary.extraPlatforms as unknown as object },
+            }).catch(() => {}),
+          )
+        }
+      }
+      // else: same platform + same title → true dup, skip
+    } else {
+      // New title — add as primary entry
+      const entry: ShowEntry = {
+        ...s,
+        extraPlatforms: Array.isArray(s.extraPlatforms)
+          ? (s.extraPlatforms as ExtraEntry[])
+          : [],
+      }
+      titleToPrimary.set(nt, entry)
+      result.push(entry)
+    }
+  }
+
+  // Fire DB updates in background (don't block the response)
+  void Promise.all(dbUpdates)
+
+  return NextResponse.json(result.slice(0, 20), { headers: NO_CACHE })
 }
 
 export async function POST(req: NextRequest) {

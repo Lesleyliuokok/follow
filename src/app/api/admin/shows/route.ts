@@ -29,7 +29,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, title, latestEpisode, totalEpisodes, status } = body
+  const { id, title, latestEpisode, totalEpisodes, status, extraPlatforms } = body
 
   if (!id && !title) {
     return NextResponse.json({ error: 'id or title required' }, { status: 400 })
@@ -66,13 +66,17 @@ export async function PATCH(req: NextRequest) {
     latestEpisode?: number
     totalEpisodes?: number
     status?: ShowStatus
+    extraPlatforms?: object
   } = {}
   if (typeof latestEpisode === 'number' && latestEpisode > 0) data.latestEpisode = latestEpisode
   if (typeof totalEpisodes === 'number' && totalEpisodes > 0) data.totalEpisodes = totalEpisodes
   if (typeof status === 'string') data.status = status as ShowStatus
+  // extraPlatforms: array of { platform, platformUrl, id? }
+  // e.g. [{"platform":"BILIBILI","platformUrl":"https://www.bilibili.com/bangumi/play/ss12345"}]
+  if (Array.isArray(extraPlatforms)) data.extraPlatforms = extraPlatforms
 
   if (Object.keys(data).length === 0) {
-    return NextResponse.json({ error: 'No updatable fields; provide latestEpisode, totalEpisodes, or status', found: show }, { status: 400 })
+    return NextResponse.json({ error: 'No updatable fields; provide latestEpisode, totalEpisodes, status, or extraPlatforms', found: show }, { status: 400 })
   }
 
   const updated = await prisma.show.update({ where: { id: show.id }, data })
@@ -91,7 +95,11 @@ export async function PATCH(req: NextRequest) {
   }
 
   console.log(`[admin/shows] updated "${show.title}": ${JSON.stringify(data)}`)
-  return NextResponse.json({ ok: true, before: { latestEpisode: show.latestEpisode, totalEpisodes: show.totalEpisodes, status: show.status }, after: updated })
+  return NextResponse.json({
+    ok: true,
+    before: { latestEpisode: show.latestEpisode, totalEpisodes: show.totalEpisodes, status: show.status, extraPlatforms: show.extraPlatforms },
+    after: updated,
+  })
 }
 
 /** DELETE: remove a show (and its ShowUpdates + Subscriptions) by id or title */

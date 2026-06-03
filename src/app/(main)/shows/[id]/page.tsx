@@ -138,7 +138,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
               </a>
             )}
 
-            {/* Extra platforms (e.g. a show simulcast on both Tencent & iQiyi) */}
+            {/* Extra platforms (e.g. a show simulcast on both Tencent & Bilibili) */}
             {Array.isArray(show.extraPlatforms) &&
               (show.extraPlatforms as { platform: string; platformUrl: string }[]).map((ep) => (
                 <a
@@ -146,7 +146,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
                   href={ep.platformUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+                  className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl border transition-colors ${PLATFORM_BADGE[ep.platform] ?? 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}
                 >
                   <ExternalLink size={15} />
                   去 {PLATFORM_LABELS[ep.platform as keyof typeof PLATFORM_LABELS] ?? ep.platform} 观看

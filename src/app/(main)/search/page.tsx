@@ -408,10 +408,17 @@ export default function DiscoverPage() {
 
   function showMeta(item: Record<string, unknown>): string {
     const parts: string[] = []
+    // Collect all platform labels (primary + extras)
+    const platformLabels: string[] = []
     if (item.platform)
-      parts.push(
-        PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? String(item.platform),
-      )
+      platformLabels.push(PLATFORM_LABELS[item.platform as keyof typeof PLATFORM_LABELS] ?? String(item.platform))
+    if (Array.isArray(item.extraPlatforms)) {
+      for (const ep of item.extraPlatforms as { platform: string }[]) {
+        const label = PLATFORM_LABELS[ep.platform as keyof typeof PLATFORM_LABELS] ?? ep.platform
+        if (!platformLabels.includes(label)) platformLabels.push(label)
+      }
+    }
+    if (platformLabels.length) parts.push(platformLabels.join(' / '))
     if (item.latestEpisode) parts.push(`第 ${String(item.latestEpisode)} 集`)
     else if (item.totalEpisodes) parts.push(`共 ${String(item.totalEpisodes)} 集`)
     return parts.join(' · ')
