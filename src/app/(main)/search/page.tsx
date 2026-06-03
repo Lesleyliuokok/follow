@@ -191,6 +191,15 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  /** Translate raw API error codes into friendly Chinese messages */
+  function friendlyError(raw: string | undefined): string {
+    const s = raw ?? ''
+    if (s.startsWith('celebrity_not_found')) return '追踪失败，艺人数据同步中，请稍候再试'
+    if (s.startsWith('show_not_found')) return '追踪失败，剧集数据加载中，请稍候再试'
+    if (s.includes('Unauthorized') || s.includes('401')) return '请先登录后再追踪'
+    return '操作失败，请稍后重试'
+  }
+
   // Discovery content
   const [trending, setTrending] = useState<TrendingShow[]>([])
   const [discoverCelebs, setDiscoverCelebs] = useState<Record<string, unknown>[]>([])
@@ -291,8 +300,8 @@ export default function DiscoverPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error ?? '操作失败，请稍后重试')
-        setTimeout(() => setErrorMsg(null), 3000)
+        setErrorMsg(friendlyError(data.error))
+        setTimeout(() => setErrorMsg(null), 4000)
         return
       }
       setSubscribed((prev) => {
@@ -326,8 +335,8 @@ export default function DiscoverPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error ?? '操作失败，请稍后重试')
-        setTimeout(() => setErrorMsg(null), 3000)
+        setErrorMsg(friendlyError(data.error))
+        setTimeout(() => setErrorMsg(null), 4000)
         return
       }
       setSubscribed((prev) => {
@@ -380,8 +389,8 @@ export default function DiscoverPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error ?? '操作失败，请稍后重试')
-        setTimeout(() => setErrorMsg(null), 3000)
+        setErrorMsg(friendlyError(data.error))
+        setTimeout(() => setErrorMsg(null), 4000)
         return
       }
       setSubscribed((prev) => {
