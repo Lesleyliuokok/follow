@@ -42,35 +42,39 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Resolve celebrity ────────────────────────────────────────────────────
-    // Neon free tier can have a brief lag between a write in one serverless
-    // function instance and visibility in another. Retry once, then fall back
-    // to name-based lookup, then auto-create.
+    // Strategy: name-first find-or-create, ID only as last-resort fallback.
+    //
+    // Root cause of celebrity_not_found: search API creates the celebrity in
+    // serverless instance A; subscription API runs in instance B which may not
+    // yet see the committed row (Neon free-tier connection pooling lag). Using
+    // the NAME as the lookup key avoids this: if the row already exists we find
+    // it regardless of which instance wrote it; if it doesn't we create it here
+    // atomically — no cross-instance timing dependency.
     const safeName = typeof name === 'string' && name.trim() ? name.trim() : null
 
     let resolvedCelebId: string | null = null
-    if (celebrityId) {
-      let celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
+    if (celebrityId || safeName) {
+      let celeb = null
 
-      // Neon lag: retry once after a short pause before giving up on the ID
-      if (!celeb) {
-        await new Promise((r) => setTimeout(r, 350))
-        celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
-      }
-
-      if (!celeb && safeName) {
-        // Fallback 1: find by name (handles stale client IDs after DB re-seed)
+      // ① Find by name first (bypasses stale-ID / cross-instance lag issues)
+      if (safeName) {
         celeb = await prisma.celebrity.findFirst({
           where: { name: { equals: safeName, mode: 'insensitive' } },
         })
       }
 
+      // ② If not found by name, try the ID the client sent
+      if (!celeb && celebrityId) {
+        celeb = await prisma.celebrity.findUnique({ where: { id: celebrityId } })
+      }
+
+      // ③ Still nothing — create from name (last resort)
       if (!celeb && safeName) {
-        // Fallback 2: create the celebrity here (last resort)
-        console.warn('[subscriptions] auto-creating celebrity after ID miss:', safeName)
         try {
           celeb = await prisma.celebrity.create({
             data: { name: safeName, avatar: avatar ?? null },
           })
+          console.log('[subscriptions] created celebrity on-the-fly:', safeName)
         } catch {
           // Concurrent creation race — another request may have created it first
           celeb = await prisma.celebrity.findFirst({
